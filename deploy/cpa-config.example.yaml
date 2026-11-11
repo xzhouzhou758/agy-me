@@ -1,0 +1,163 @@
+# /opt/agy-me/cpa/config.yaml  (chmod 600) - CLIProxyAPI v8 for agy-me, single user.
+# Replace the two CHANGE-ME values. CPA hashes management.secret-key in place on first start, so keep the plain
+# key in agy-me.env (CPA_MANAGEMENT_KEY) - that is the only copy agy-me needs.
+config-version: 8
+
+server:
+  host: "127.0.0.1"      # host network: only reachable through nginx / agy-me on this machine
+  port: 8318
+
+management:
+  allow-remote: false
+  secret-key: "CHANGE-ME-same-as-CPA_MANAGEMENT_KEY"
+  disable-control-panel: false  # served by agy-me under /me/cpa/ (agy-me injects the management key)
+
+access:
+  api-keys:              # what clients (SillyTavern etc.) send as their API key
+    - "CHANGE-ME-client-key"
+
+routing:
+  retry:
+    request-retry: 2
+    max-retry-credentials: 3
+    max-retry-interval: 45
+  cooldown:
+    disable-cooling: false
+
+requests:
+  streaming:
+    keepalive-seconds: 15
+    bootstrap-retries: 1
+  # Thinking tiers for the aliases below: xxx-low / xxx-medium get a fixed budget or level, plain xxx gets the
+  # dynamic budget when the client sent none; xxx-high is the upstream model as it is.
+  payload:
+    override:
+      - models:
+          - name: "claude-opus-5-5-low"
+            protocol: "antigravity"
+          - name: "claude-sonnet-5-5-low"
+            protocol: "antigravity"
+        params:
+          "generationConfig.thinkingConfig.thinkingBudget": 1024
+          "generationConfig.thinkingConfig.includeThoughts": true
+      - models:
+          - name: "gemini-3.8-flash-low"
+            protocol: "antigravity"
+          - name: "gemini-4-argon-low"
+            protocol: "antigravity"
+        params:
+          "generationConfig.thinkingConfig.thinkingLevel": "low"
+          "generationConfig.thinkingConfig.includeThoughts": true
+      - models:
+          - name: "claude-opus-5-5-medium"
+            protocol: "antigravity"
+          - name: "claude-sonnet-5-5-medium"
+            protocol: "antigravity"
+        params:
+          "generationConfig.thinkingConfig.thinkingBudget": 8192
+          "generationConfig.thinkingConfig.includeThoughts": true
+      - models:
+          - name: "gemini-3.8-flash-medium"
+            protocol: "antigravity"
+          - name: "gemini-4-argon-medium"
+            protocol: "antigravity"
+        params:
+          "generationConfig.thinkingConfig.thinkingLevel": "medium"
+          "generationConfig.thinkingConfig.includeThoughts": true
+    filter:
+      - models:
+          - name: "claude-opus-5-5-low"
+            protocol: "antigravity"
+          - name: "claude-opus-5-5-medium"
+            protocol: "antigravity"
+          - name: "claude-sonnet-5-5-low"
+            protocol: "antigravity"
+          - name: "claude-sonnet-5-5-medium"
+            protocol: "antigravity"
+        params:
+          - "generationConfig.thinkingConfig.thinkingLevel"
+      - models:
+          - name: "gemini-3.8-flash-low"
+            protocol: "antigravity"
+          - name: "gemini-3.8-flash-medium"
+            protocol: "antigravity"
+          - name: "gemini-4-argon-low"
+            protocol: "antigravity"
+          - name: "gemini-4-argon-medium"
+            protocol: "antigravity"
+        params:
+          - "generationConfig.thinkingConfig.thinkingBudget"
+    default:
+      - models:
+          - name: "claude-opus-5-5"
+            protocol: "antigravity"
+            not-exist:
+              - "generationConfig.thinkingConfig"
+          - name: "claude-sonnet-5-5"
+            protocol: "antigravity"
+            not-exist:
+              - "generationConfig.thinkingConfig"
+          - name: "gemini-3.8-flash"
+            protocol: "antigravity"
+            not-exist:
+              - "generationConfig.thinkingConfig"
+          - name: "gemini-4-argon"
+            protocol: "antigravity"
+            not-exist:
+              - "generationConfig.thinkingConfig"
+        params:
+          "generationConfig.thinkingConfig.thinkingBudget": -1
+          "generationConfig.thinkingConfig.includeThoughts": true
+
+oauth:
+  auth-dir: "/root/.cli-proxy-api"   # = /opt/agy-me/cpa/auths on the host
+  model-alias:
+    antigravity:                     # xxx / xxx-low / xxx-medium are forks of xxx-high (agy-me's 模型档位 reads these)
+      - name: "claude-opus-5-5-high"
+        alias: "claude-opus-5-5-low"
+        fork: true
+      - name: "claude-opus-5-5-high"
+        alias: "claude-opus-5-5-medium"
+        fork: true
+      - name: "claude-opus-5-5-high"
+        alias: "claude-opus-5-5"
+        fork: true
+      - name: "claude-sonnet-5-5-high"
+        alias: "claude-sonnet-5-5-low"
+        fork: true
+      - name: "claude-sonnet-5-5-high"
+        alias: "claude-sonnet-5-5-medium"
+        fork: true
+      - name: "claude-sonnet-5-5-high"
+        alias: "claude-sonnet-5-5"
+        fork: true
+      - name: "gemini-3.8-flash-high"
+        alias: "gemini-3.8-flash-low"
+        fork: true
+      - name: "gemini-3.8-flash-high"
+        alias: "gemini-3.8-flash-medium"
+        fork: true
+      - name: "gemini-3.8-flash-high"
+        alias: "gemini-3.8-flash"
+        fork: true
+      - name: "gemini-4-argon-high"
+        alias: "gemini-4-argon-low"
+        fork: true
+      - name: "gemini-4-argon-high"
+        alias: "gemini-4-argon-medium"
+        fork: true
+      - name: "gemini-4-argon-high"
+        alias: "gemini-4-argon"
+        fork: true
+
+observability:
+  logs:
+    request-log: false
+    logging-to-file: false
+  usage:
+    usage-statistics-enabled: true            # agy-me's request log drains this queue
+    redis-usage-queue-retention-seconds: 300  # survives an agy-me restart of a few minutes
+
+plugins:
+  enabled: false
+

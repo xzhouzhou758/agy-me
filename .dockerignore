@@ -1,0 +1,9 @@
+node_modules
+data
+.dev
+test
+deploy
+ops
+ref
+*.md
+.env

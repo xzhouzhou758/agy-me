@@ -1,0 +1,13 @@
+[Unit]
+Description=agy-me remote browser helper (starts/stops the agy-me-browser container)
+After=docker.service
+Requires=docker.service
+
+[Service]
+EnvironmentFile=/opt/agy-me/browserd.env
+ExecStart=/usr/bin/python3 /opt/agy-me/browserd.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

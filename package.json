@@ -1,0 +1,21 @@
+{
+  "name": "agy-me",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Single-user web panel for a self-use CLIProxyAPI: accounts, quota, request log, usage, remote browser",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/main.ts",
+    "check": "tsc --noEmit",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "passwd": "node --disable-warning=ExperimentalWarning src/passwd.ts",
+    "dev": "node --disable-warning=ExperimentalWarning test/dev.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

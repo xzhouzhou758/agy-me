@@ -1,0 +1,36 @@
+# /opt/agy-me/docker-compose.yml   (app source in /opt/agy-me/app, CPA files in /opt/agy-me/cpa)
+services:
+  cpa:
+    image: eceasy/cli-proxy-api:v8.0.66
+    container_name: agy-me-cpa
+    # host network: CPA listens on 127.0.0.1:8318 (server.host / server.port in cpa/config.yaml)
+    network_mode: host
+    volumes:
+      - ./cpa/config.yaml:/CLIProxyAPI/config.yaml
+      - ./cpa/auths:/root/.cli-proxy-api
+      - ./cpa/logs:/CLIProxyAPI/logs
+    mem_limit: 256m
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  agy-me:
+    build: ./app
+    image: agy-me:local
+    container_name: agy-me
+    # host network: listen on 127.0.0.1 only and reach CPA on 127.0.0.1:8318 / browserd on 127.0.0.1:8331
+    network_mode: host
+    depends_on: [cpa]
+    env_file: ./agy-me.env
+    environment:
+      HOST: 127.0.0.1
+      PORT: "8321"
+      BASE_PATH: /me
+    volumes:
+      - ./data:/app/data   # state.json, quota.json, usage.sqlite (request log)
+    mem_limit: 128m
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
