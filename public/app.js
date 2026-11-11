@@ -156,6 +156,20 @@ const seg=(name,opts,cur,label)=>`<div class="seg" role="radiogroup" aria-label=
 const isDark=()=>document.documentElement.dataset.theme==='dark';
 const themeBtn=()=>`<button class="btn sm ghost icon" id="themebtn" data-act="theme" aria-label="${isDark()?'切到浅色':'切到深色'}" title="${isDark()?'切到浅色':'切到深色'}">${ic(isDark()?'sun':'moon')}</button>`;
 
+/* 顶栏选中项：同步 aria-current，下划线弹到新位置 */
+function syncNav(){
+  document.querySelectorAll('.tnav button').forEach(b=>b.setAttribute('aria-current',b.dataset.act==='goto:'+page?'page':'false'));
+  moveInd(true);
+}
+function moveInd(anim){
+  const n=document.querySelector('.tnav'),i=n?.querySelector('.tnav-ind'),b=n?.querySelector('button[aria-current=page]');
+  if(!i)return;
+  if(!b||!b.offsetWidth){i.style.opacity='0';return;}
+  if(!anim)i.style.transition='none';
+  i.style.opacity='1';i.style.left=(b.offsetLeft+b.offsetWidth/2-9)+'px';i.style.top=(b.offsetTop+b.offsetHeight-4)+'px';
+  if(!anim){void i.offsetWidth;i.style.transition='';}
+}
+addEventListener('resize',()=>moveInd(false));
 function render(){
   const root=$('#root');
   if(!me){root.innerHTML=loginView();$('#f-pass')?.focus();return;}
@@ -165,17 +179,23 @@ function render(){
   if(loadState==='loading')main=`<section class="card glass"><div class="hstack"><span class="spin"></span><span class="dim">加载中…</span></div></section>`;
   else if(loadState==='error')main=`<section class="card glass">${empty('wifi','加载失败',`<button class="btn primary" data-act="reload">${ic('refresh')}重试</button>`)}</section>`;
   else{try{main=views[page]();}catch(e){console.error(e);main=`<section class="card glass">${empty('alert','页面出错了')}</section>`;}}
+  // 顶栏不重画：只换主体内容，选中下划线弹过去
+  const navKey=[navPages().map(p=>p[0]).join(),isDark()?'d':'l'].join('|');
+  const hdr=root.querySelector('.top');
+  if(hdr&&hdr.dataset.nav===navKey&&document.getElementById('main')){document.getElementById('main').innerHTML=main;syncNav();}
+  else{
   root.innerHTML=`<div class="app">
     <div class="content"><div class="wrap">
-      <header class="top glass">
+      <header class="top glass" data-nav="${esc(navKey)}">
         <div class="top-left"><div class="brand tb"><img class="logo" src="logo.jpg" alt=""><span class="tb-name">Antigravity<i class="me">me</i></span></div></div>
-        <nav class="tnav" aria-label="主导航">${navPages().map(([id,icon,name])=>`<button type="button" data-act="goto:${id}" aria-current="${page===id?'page':'false'}">${ic(icon)}<span>${name}</span></button>`).join('')}</nav>
+        <nav class="tnav has-ind" aria-label="主导航">${navPages().map(([id,icon,name])=>`<button type="button" data-act="goto:${id}" aria-current="${page===id?'page':'false'}">${ic(icon)}<span>${name}</span></button>`).join('')}<span class="tnav-ind" aria-hidden="true"></span></nav>
         <div class="top-right"><button class="btn sm ghost icon" data-act="reload" aria-label="刷新" title="刷新">${ic('refresh')}</button>${themeBtn()}<button class="btn sm ghost icon" data-act="logout" aria-label="退出登录" title="退出登录">${ic('logout')}</button></div>
       </header>
       <main id="main" tabindex="-1">${main}</main>
       <footer class="credit">Made with 🦴 by 聪明绝顶二狗子</footer>
     </div></div>
   </div>`;
+  moveInd(false);}
   afterRender();
 }
 function afterRender(){

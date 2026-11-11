@@ -888,3 +888,8 @@ button.aq-st{cursor:pointer}
 .sorth{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;font-weight:600;color:var(--dim)}
 .sorth i{font-size:12px;margin-left:2px;opacity:.55}
 .sorth.on i{opacity:1}
+/* 导航下划线：一条，切换时弹过去 */
+.tnav.has-ind button[aria-current=page]::after{display:none}
+.tnav-ind{position:absolute;left:0;top:0;width:18px;height:3px;border-radius:3px;background:var(--accent);opacity:0;pointer-events:none;transition:left .45s cubic-bezier(.34,1.56,.64,1),top .3s ease,opacity .2s}
+.tnav{position:relative}
+@media (prefers-reduced-motion:reduce){.tnav-ind{transition:none}}
