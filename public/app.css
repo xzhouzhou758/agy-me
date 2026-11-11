@@ -923,3 +923,6 @@ button.aq-st{cursor:pointer}
 .rbars .rb:hover{background:color-mix(in srgb,var(--accent) 75%,transparent)}
 .rbars .rb.bad:hover{background:color-mix(in srgb,var(--bad) 85%,transparent)}
 .rbars .rb{cursor:default}
+/* 最近请求小柱：悬停颜色加深（整条已单独一层，无渐变） */
+.rbars .rb:hover{background:var(--accent)}
+.rbars .rb.bad:hover{background:var(--bad)}
