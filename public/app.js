@@ -256,12 +256,14 @@ function famCard(k,name,icon){
     <div class="fcq-b">${ring}${tot?`<div class="fcq-m"><div class="num">${F.withQuota}<small>/ ${tot}</small></div><div class="aq-windows">${ln('5H',h)}${ln('7D',w)}</div></div>`:`<div class="fcq-m"><div class="aq-off">未开通配额</div></div>`}</div></section>`;
 }
 const hv=p=>p>=80?'':p>=50?'mid':'low';
+/* 账号健康 + 风控点阵：一张卡 */
 function healthCard(){
-  const n=D.ov.counts,usable=n.total-n.disabled,p=usable?Math.round(n.ok/usable*100):null;
-  return `<section class="stat glass fc"><div class="fc-h">${ic('shield')}<span>账号健康</span></div>
-    ${p==null?`<div class="num faint">—</div>`:`<div class="num">${n.ok}<small>/ ${usable}</small></div>
-    <div class="meter ${hv(p)}"><span style="width:${Math.max(p,1)}%"></span></div>`}
-    <div class="legend">${['ok','cooldown','banned','disabled'].map(s=>`<span><i class="sdot ${ST[s][0]}"></i>${ST[s][1]} <b>${n[s]}</b></span>`).join('')}</div></section>`;
+  const n=D.ov.counts,usable=n.total-n.disabled,p=usable?Math.round(n.ok/usable*100):null,L=D.ov.dots;
+  const dots=L.length?`<div class="dots">${L.map(d=>`<button class="rdot ${d.status}" data-act="jump:${esc(d.id)}" title="${esc(d.email+(d.reason?' · '+d.reason:''))}" aria-label="${esc(d.email)} ${ST[d.status][1]}"></button>`).join('')}</div>`:'<p class="faint">还没有账号</p>';
+  return `<section class="card glass hcard"><div class="hcard-l"><div class="fc-h">${ic('shield')}<span>账号健康</span></div>
+    ${p==null?`<div class="num faint">—</div>`:`<div class="num">${n.ok}<small>/ ${usable}</small></div><div class="meter ${hv(p)}"><span style="width:${Math.max(p,1)}%"></span></div>`}
+    <div class="legend">${['ok','cooldown','banned','disabled'].map(s=>`<span><i class="sdot ${ST[s][0]}"></i>${ST[s][1]} <b>${n[s]}</b></span>`).join('')}</div></div>
+    <div class="hcard-r">${dots}</div></section>`;
 }
 function banBanner(){
   const B=D.ov.bans;if(!B.length)return '';
@@ -275,11 +277,9 @@ const aobOpen=()=>{try{return localStorage.getItem(aobKey)!=='1';}catch(e){retur
 function autoBanner(){
   const A=D.ov.autoOff||[];if(!A.length)return '';
   const g={};A.forEach(b=>{const k=shortWhy(b.reason);g[k]=(g[k]||0)+1;});
-  const card=b=>{const why=shortWhy(b.reason),ap=b.action;
-    return `<article class="aq-glass aob-card"><div class="aq-who"><div class="aq-mail" title="${esc(b.email)}">${esc(b.email)}</div>
-      <div class="aq-meta"><span class="aq-st bad">403 异常</span><span class="aq-sep"></span><span title="${esc(new Date(b.at).toLocaleString())}">${esc(ago(b.at))}停用</span></div></div>
-      <div class="aq-ban"><div class="aq-ban-l"><span class="aq-ban-ico"><span class="aq-lock"></span></span><div class="aq-ban-txt"><span>账号访问受限 (HTTP 403)</span><span class="aq-ban-sub">${esc(why)}</span></div></div>
-      <span class="aob-btns"><button type="button" data-act="reason:${esc(b.id)}">查看原因</button>${ap?`<a href="${esc(ap.url)}" target="_blank" rel="noopener noreferrer">${ap.kind==='appeal'?'申诉':'验证'}</a>`:''}</span></div></article>`;};
+  const card=b=>{const ap=b.action;
+    return `<div class="aq-ban aob-r"><div class="aq-ban-l"><span class="aq-ban-ico"><span class="aq-lock"></span></span><div class="aq-ban-txt"><span class="aob-m" title="${esc(b.email)}">${esc(b.email)}</span><span class="aq-ban-sub" title="${esc(new Date(b.at).toLocaleString())}">${esc(shortWhy(b.reason))} · ${esc(ago(b.at))}</span></div></div>
+      <span class="aob-btns"><button type="button" data-act="reason:${esc(b.id)}">查看原因</button>${ap?`<a href="${esc(ap.url)}" target="_blank" rel="noopener noreferrer">${ap.kind==='appeal'?'申诉':'验证'}</a>`:''}</span></div>`;};
   return `<details class="aob"${aobOpen()?' open':''}><summary>${ic('power')}<b>自动停用 ${A.length} 个号</b>${Object.entries(g).map(([k,n])=>`<span class="aob-t">${esc(k)} ${n}</span>`).join('')}<i class="aob-c"></i></summary>
     <div class="aob-l">${A.map(card).join('')}</div></details>`;
 }
@@ -306,7 +306,7 @@ function pageDash(){
   const nums=`<div class="dnums"><div><small>总账号</small><b>${n.total}</b></div><div><small>可用</small><b class="good-t">${n.ok}</b></div><div><small>正常率</small><b>${o.healthy==null?'—':`${Math.round(o.healthy*100)}<small>%</small>`}</b></div></div>`;
   return head('仪表盘',nums+`<button class="btn primary" data-act="add">${ic('plus')}添加账号</button>`)+banBanner()+autoBanner()+
   `<div class="grid g4">${famCard('gemini','Gemini 3.8','gemini')}${famCard('claude','Claude / GPT','claude')}${famCard('argon','Gemini 4 Argon','gemini')}${famCard('carbon','Gemini 4 Carbon','gemini')}</div>
-  <div class="grid dash-2">${healthCard()}${riskCard()}</div>
+  ${healthCard()}
   ${recentCard()}`;
 }
 

@@ -934,9 +934,17 @@ button.aq-st{cursor:pointer}
 .aob-t{font-size:12px;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--aq-r) 12%,transparent);color:var(--aq-r)}
 .aob-c{margin-left:4px;width:7px;height:7px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px);transition:transform .2s}
 .aob[open] .aob-c{transform:rotate(225deg) translateY(-2px)}
-.aob-l{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,400px),1fr));gap:14px}
-.aob-card{padding:16px 18px;border-radius:20px;min-width:0}
-.aob-card .aq-ban{height:auto;padding:12px 14px;margin-top:12px}
+.aob-l{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));gap:10px}
+.aob .aq-ban.aob-r{height:58px;margin:0;padding:0 12px 0 12px;border-radius:14px}
+.aob-r .aq-ban-l,.aob-r .aq-ban-txt{min-width:0}
+.aob-m{color:var(--ink);font-family:var(--mono,ui-monospace,monospace);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .aob-btns{display:flex;gap:6px;flex:none}
 .aob-btns a{color:#fff;background:var(--aq-r);padding:5px 11px;border-radius:999px;font-size:11.5px;font-weight:600;text-decoration:none;white-space:nowrap}
 .aob-btns a:hover{filter:brightness(1.08)}
+/* 账号健康 + 风控合一：左边数字和图例，右边点阵 */
+.hcard{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);gap:28px;align-items:center}
+.hcard-l{display:flex;flex-direction:column;gap:8px;min-width:0}
+.hcard-l .num{font-size:28px;font-weight:650;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.2}
+.hcard-l .num small{font-size:12.5px;color:var(--dim);font-weight:500;margin-left:4px}
+.hcard-r{min-width:0;padding-left:28px;border-left:1px solid var(--hair);align-self:stretch;display:flex;align-items:center}
+@media (max-width:760px){.hcard{grid-template-columns:minmax(0,1fr);gap:16px}.hcard-r{padding-left:0;border-left:0;padding-top:14px;border-top:1px solid var(--hair)}}
