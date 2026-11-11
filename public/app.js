@@ -129,15 +129,16 @@ function quotaSlots(a){
 }
 function quotaBlock(a,cls=''){
   const q=a.quota;
-  if(q?.forbidden)return `<div class="aq-ban"><div class="aq-ban-l"><span class="aq-ban-ico"><span class="aq-lock"></span></span><div class="aq-ban-txt"><span>账号访问受限 (HTTP 403)</span><span class="aq-ban-sub">查看上游返回的错误详情</span></div></div><button type="button" data-act="reason:${esc(a.id)}">查看原因</button></div>`;
+  if(q?.forbidden||a.autoAt){const ap=a.action,why=a.autoAt?shortWhy(a.reason||q?.forbidden):(/TOS_VIOLATION|violation of Terms/i.test(q.forbidden)?'违反服务条款':'上游拒绝访问');
+    return `<div class="aq-ban"><div class="aq-ban-l"><span class="aq-ban-ico"><span class="aq-lock"></span></span><div class="aq-ban-txt"><span>账号访问受限 (HTTP 403)</span><span class="aq-ban-sub">${esc(why)}${a.autoAt?' · 已自动停用':''}</span></div></div><span class="aob-btns"><button type="button" data-act="reason:${esc(a.id)}">查看原因</button>${ap?`<a href="${esc(ap.url)}" target="_blank" rel="noopener noreferrer">${ap.kind==='appeal'?'申诉':'验证'}</a>`:''}</span></div>`;}
   if(!q)return `<div class="aq-none">${a.quotaErr?'额度读取失败':'暂无模型额度遥测数据'}</div>`;
   return `<div class="aq-quota ${cls}">${quotaSlots(a).map(x=>gauge(...x)).join('')}</div>`;
 }
 const ST_CLS={ok:'',cooldown:'warn',banned:'bad',disabled:'off'};
-const stLabel=a=>a.status==='banned'?(a.quota?.forbidden?'403 异常':'异常'):a.status==='cooldown'?'冷却中':a.status==='disabled'?'已停用':'正常';
+const stLabel=a=>a.autoAt?'403 异常':a.status==='banned'?(a.quota?.forbidden?'403 异常':'异常'):a.status==='cooldown'?'冷却中':a.status==='disabled'?'已停用':'正常';
 function stTag(a){
-  const c=ST_CLS[a.status],t=esc(stLabel(a));
-  return a.status!=='ok'&&(a.reason||a.quotaErr||a.quota?.forbidden)?`<button type="button" class="aq-st ${c}" data-act="reason:${esc(a.id)}" title="查看原因">${t}</button>`:`<span class="aq-st ${c}">${t}</span>`;
+  const c=a.autoAt?'bad':ST_CLS[a.status],t=esc(stLabel(a));
+  return a.status!=='ok'&&(a.autoAt||a.reason||a.quotaErr||a.quota?.forbidden)?`<button type="button" class="aq-st ${c}" data-act="reason:${esc(a.id)}" title="查看原因">${t}</button>`:`<span class="aq-st ${c}">${t}</span>`;
 }
 
 /* ============ 页面框架 ============ */
@@ -339,10 +340,10 @@ const A_cb=a=>`<input type="checkbox" class="cb" data-sel="${esc(a.id)}" ${ui.ac
 const A_acts=a=>`<button class="btn sm ghost icon" data-act="detail:${esc(a.id)}" aria-label="详情" title="详情">${ic('sliders')}</button>`;
 const A_who=a=>`<div class="aq-who"><div class="aq-mail" title="${esc(a.email)}">${esc(a.email)}</div><div class="aq-meta">${tierTag(a.tier)}${stTag(a)}<span class="aq-sep"></span><span title="最近使用">${a.lastUsed?esc(ago(a.lastUsed)):'从未'}</span>${a.note?`<span class="aq-sep"></span><span title="备注">${esc(a.note)}</span>`:''}</div></div>`;
 const A_tog=a=>`<button type="button" role="switch" class="aq-tog" data-act="toggle:${esc(a.id)}" aria-label="启用 ${esc(a.email)}" aria-checked="${!a.disabled}"><span>${a.disabled?'停用':'启用'}</span><span class="aq-sw" aria-hidden="true"></span></button>`;
-const accCard=a=>`<article class="aq-card aq-glass ${a.tier==='ULTRA'?'aq-ultra':''} ${a.disabled?'off':''}" id="acc-${cssId(a.id)}">
+const accCard=a=>`<article class="aq-card aq-glass ${a.tier==='ULTRA'?'aq-ultra':''} ${a.disabled&&!a.autoAt?'off':''}" id="acc-${cssId(a.id)}">
       <div><div class="aq-head">${A_cb(a)}${A_who(a)}</div>${quotaBlock(a)}</div>
       <div class="aq-foot"><span class="aq-foot-l"><span class="aq-clock"></span><span>${a.quotaAt?esc(ago(a.quotaAt))+'同步':'未同步'}</span></span><span class="aq-act">${A_acts(a)}${A_tog(a)}</span></div></article>`;
-const accRow=a=>`<div class="aq-row ${a.disabled?'off':''}" id="acc-${cssId(a.id)}">${A_cb(a)}${A_who(a)}${quotaBlock(a)}<span class="aq-act">${A_acts(a)}${A_tog(a)}</span></div>`;
+const accRow=a=>`<div class="aq-row ${a.disabled&&!a.autoAt?'off':''}" id="acc-${cssId(a.id)}">${A_cb(a)}${A_who(a)}${quotaBlock(a)}<span class="aq-act">${A_acts(a)}${A_tog(a)}</span></div>`;
 /* 分页：当前页的号；跳到某个号时翻到它所在的页 */
 const ACC_SIZES=[10,20,50,100];
 function pageList(){
