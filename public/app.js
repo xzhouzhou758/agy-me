@@ -269,11 +269,15 @@ function banBanner(){
     ${B.map(b=>`<div class="ban-r"><span class="mono">${esc(b.email)}</span><small>${esc(b.reason)}</small>${b.action?`<a class="btn sm ghost" href="${esc(b.action.url)}" target="_blank" rel="noopener noreferrer">${ic('ext')}${b.action.kind==='appeal'?'申诉':'验证'}</a>`:''}<button class="btn sm danger" data-act="banoff:${esc(b.id)}">${ic('power')}停用</button></div>`).join('')}</div>
     ${B.length>1?`<button class="btn sm danger ban-all" data-act="banall">全部停用</button>`:''}</section>`;
 }
+const shortWhy=r=>{r=String(r||'');return /Terms of Service|TOS_VIOLATION/i.test(r)?'违反服务条款':/verif/i.test(r)?'需要验证账号':/disabled/i.test(r)?'服务被停用':(r.replace(/^自动停用\s*·\s*/,'').slice(0,24)||'403');};
+let autoOpen=false;
 function autoBanner(){
   const A=D.ov.autoOff||[];if(!A.length)return '';
-  return `<section class="ban auto">${ic('power')}<div class="ban-b"><b>自动停用了 ${A.length} 个号</b>
-    ${A.map(b=>`<div class="ban-r"><span class="mono">${esc(b.email)}</span><small title="${esc(new Date(b.at).toLocaleString())}">${esc(b.reason)} · ${esc(ago(b.at))}</small>${b.action?`<a class="btn sm ghost" href="${esc(b.action.url)}" target="_blank" rel="noopener noreferrer">${ic('ext')}${b.action.kind==='appeal'?'申诉':'验证'}</a>`:''}</div>`).join('')}</div></section>`;
+  const g={};A.forEach(b=>{const k=shortWhy(b.reason);g[k]=(g[k]||0)+1;});
+  return `<details class="aob"${autoOpen?' open':''}><summary>${ic('power')}<b>自动停用 ${A.length} 个号</b>${Object.entries(g).map(([k,n])=>`<span class="aob-t">${esc(k)} ${n}</span>`).join('')}<i class="aob-c"></i></summary>
+    <div class="aob-l">${A.map(b=>`<div class="aob-r" title="${esc(b.reason)}"><span class="mono">${esc(b.email)}</span><small title="${esc(new Date(b.at).toLocaleString())}">${esc(ago(b.at))}</small>${b.action?`<a href="${esc(b.action.url)}" target="_blank" rel="noopener noreferrer">${b.action.kind==='appeal'?'申诉':'验证'}${ic('ext')}</a>`:''}</div>`).join('')}</div></details>`;
 }
+document.addEventListener('toggle',e=>{if(e.target.classList?.contains('aob'))autoOpen=e.target.open;},true);
 const cssId=id=>String(id).replace(/[^A-Za-z0-9_-]/g,'_');
 function riskCard(){
   const L=D.ov.dots;
