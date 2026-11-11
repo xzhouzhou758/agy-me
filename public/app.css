@@ -905,3 +905,10 @@ button.aq-st{cursor:pointer}
   body.nav-side .content{padding-left:228px}
 }
 @media (max-width:760px){[data-act=navpos]{display:none}}
+/* 左侧导航：加宽，和内容一起居中 */
+@media (min-width:761px){
+  body.nav-side .mnav{width:240px;left:max(16px,calc((100vw - 1420px) / 2));padding:16px 12px}
+  body.nav-side .mnav button{padding:11px 14px;font-size:14.5px}
+  body.nav-side .content{padding-left:calc(max(16px,calc((100vw - 1420px) / 2)) + 260px)}
+  body.nav-side .wrap{margin-left:0}
+}
