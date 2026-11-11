@@ -893,3 +893,15 @@ button.aq-st{cursor:pointer}
 .tnav-ind{position:absolute;left:0;top:0;width:18px;height:3px;border-radius:3px;background:var(--accent);opacity:0;pointer-events:none;transition:left .45s cubic-bezier(.34,1.56,.64,1),top .3s ease,opacity .2s}
 .tnav{position:relative}
 @media (prefers-reduced-motion:reduce){.tnav-ind{transition:none}}
+/* 导航放左边（电脑上） */
+.mnav{display:none}
+@media (min-width:761px){
+  body.nav-side .top .tnav{display:none}
+  body.nav-side .mnav{position:fixed;top:16px;left:16px;bottom:16px;z-index:20;width:196px;display:flex;flex-direction:column;gap:2px;padding:14px 10px;border-radius:22px;overflow-y:auto}
+  body.nav-side .mnav button{display:flex;align-items:center;gap:11px;border:0;background:transparent;padding:10px 12px;border-radius:13px;color:var(--dim);font-size:14px;text-align:left;white-space:nowrap;transition:background .2s,color .2s}
+  body.nav-side .mnav button svg{width:17px;height:17px;flex:none}
+  body.nav-side .mnav button:hover{background:var(--fill);color:var(--ink)}
+  body.nav-side .mnav button[aria-current=page]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+  body.nav-side .content{padding-left:228px}
+}
+@media (max-width:760px){[data-act=navpos]{display:none}}

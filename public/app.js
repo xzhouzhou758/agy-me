@@ -3,6 +3,8 @@
 
 /* ============ 图标（内联 SVG，参考 Lucide，ISC 许可） ============ */
 const ICONS={
+  sidebar:'<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
+  topbar:'<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18"/>',
   terminal:'<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
   pen:'<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
   sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
@@ -156,9 +158,18 @@ const seg=(name,opts,cur,label)=>`<div class="seg" role="radiogroup" aria-label=
 const isDark=()=>document.documentElement.dataset.theme==='dark';
 const themeBtn=()=>`<button class="btn sm ghost icon" id="themebtn" data-act="theme" aria-label="${isDark()?'切到浅色':'切到深色'}" title="${isDark()?'切到浅色':'切到深色'}">${ic(isDark()?'sun':'moon')}</button>`;
 
+/* 导航放顶栏还是左边：只记在这个浏览器 */
+const navSide=()=>{try{return localStorage.getItem('agyme-navpos')==='side';}catch(e){return false;}};
+const navPosBtn=()=>`<button class="btn sm ghost icon" data-act="navpos" aria-label="${navSide()?'导航放回顶部':'导航放到左边'}" title="${navSide()?'导航放回顶部':'导航放到左边'}">${ic(navSide()?'topbar':'sidebar')}</button>`;
+function setNavPos(side){
+  try{side?localStorage.setItem('agyme-navpos','side'):localStorage.removeItem('agyme-navpos');}catch(e){}
+  document.body.classList.toggle('nav-side',side);
+  const b=document.querySelector('[data-act=navpos]');if(b)b.outerHTML=navPosBtn();
+  moveInd(false);
+}
 /* 顶栏选中项：同步 aria-current，下划线弹到新位置 */
 function syncNav(){
-  document.querySelectorAll('.tnav button').forEach(b=>b.setAttribute('aria-current',b.dataset.act==='goto:'+page?'page':'false'));
+  document.querySelectorAll('.tnav button,.mnav button').forEach(b=>b.setAttribute('aria-current',b.dataset.act==='goto:'+page?'page':'false'));
   moveInd(true);
 }
 function moveInd(anim){
@@ -171,6 +182,7 @@ function moveInd(anim){
 }
 addEventListener('resize',()=>moveInd(false));
 function render(){
+  document.body.classList.toggle('nav-side',navSide());
   const root=$('#root');
   if(!me){root.innerHTML=loginView();$('#f-pass')?.focus();return;}
   if(!navPages().some(p=>p[0]===page))page='dash';
@@ -189,8 +201,9 @@ function render(){
       <header class="top glass" data-nav="${esc(navKey)}">
         <div class="top-left"><div class="brand tb"><img class="logo" src="logo.jpg" alt=""><span class="tb-name">Antigravity<i class="me">me</i></span></div></div>
         <nav class="tnav has-ind" aria-label="主导航">${navPages().map(([id,icon,name])=>`<button type="button" data-act="goto:${id}" aria-current="${page===id?'page':'false'}">${ic(icon)}<span>${name}</span></button>`).join('')}<span class="tnav-ind" aria-hidden="true"></span></nav>
-        <div class="top-right"><button class="btn sm ghost icon" data-act="reload" aria-label="刷新" title="刷新">${ic('refresh')}</button>${themeBtn()}<button class="btn sm ghost icon" data-act="logout" aria-label="退出登录" title="退出登录">${ic('logout')}</button></div>
+        <div class="top-right">${navPosBtn()}<button class="btn sm ghost icon" data-act="reload" aria-label="刷新" title="刷新">${ic('refresh')}</button>${themeBtn()}<button class="btn sm ghost icon" data-act="logout" aria-label="退出登录" title="退出登录">${ic('logout')}</button></div>
       </header>
+      <aside class="mnav glass" aria-label="主导航">${navPages().map(([id,icon,name])=>`<button type="button" data-act="goto:${id}" aria-current="${page===id?'page':'false'}">${ic(icon)}<span>${name}</span></button>`).join('')}</aside>
       <main id="main" tabindex="-1">${main}</main>
       <footer class="credit">Made with 🦴 by 聪明绝顶二狗子</footer>
     </div></div>
@@ -786,6 +799,7 @@ document.addEventListener('click',act(async e=>{
   const a=i<0?el.dataset.act:el.dataset.act.slice(0,i),arg=i<0?'':el.dataset.act.slice(i+1);
   switch(a){
     case 'goto':go(arg);break;
+    case 'navpos':setNavPos(!navSide());break;
     case 'reload':await reload();break;
     case 'close':closeDialog();break;
     case 'theme':lsSet('agy-theme',isDark()?'light':'dark');applyTheme();break;
