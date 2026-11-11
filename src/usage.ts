@@ -336,9 +336,10 @@ export async function drainOnce(store: QueueStore): Promise<number> {
   return n;
 }
 
-export function startUsageDrainer(store: QueueStore, pollMs: number, retentionDays: number) {
-  void drainOnce(store);
-  setInterval(() => void drainOnce(store), pollMs).unref();
+export function startUsageDrainer(store: QueueStore, pollMs: number, retentionDays: number, onRecords?: (n: number) => void) {
+  const tick = () => void drainOnce(store).then((n) => { if (n > 0) onRecords?.(n); });
+  tick();
+  setInterval(tick, pollMs).unref();
   store.prune(retentionDays);
   setInterval(() => store.prune(retentionDays), 3600000).unref();
 }

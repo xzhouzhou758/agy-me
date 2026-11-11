@@ -47,6 +47,7 @@ export type AccountView = {
   cooldowns: CooldownView[];
   action: Action | null; // Google's verify / appeal link
   autoAt: number; // turned off by auto-disable at (ms); 0 = not
+  sleepAt: number; // put to sleep by 闲置自动休眠 at (ms); 0 = awake
   lastUsed: number;
   createdAt: string;
   success: number;
@@ -95,7 +96,7 @@ export function usedTokens(q: Quota | null, ev: TokEvent[], now = Date.now()): U
   return out;
 }
 
-export function accountView(c: Cred, e: Entry | null, ban: Ban | null, lastUsed: number, now = Date.now(), mark: AutoMark | null = null, ev: TokEvent[] = []): AccountView {
+export function accountView(c: Cred, e: Entry | null, ban: Ban | null, lastUsed: number, now = Date.now(), mark: AutoMark | null = null, ev: TokEvent[] = [], sleepAt = 0): AccountView {
   const q = e?.q || null;
   const auto = c.disabled ? mark : null;
   const { status, reason: r } = classifyAccount(c, q, ban, now);
@@ -115,6 +116,7 @@ export function accountView(c: Cred, e: Entry | null, ban: Ban | null, lastUsed:
     cooldowns: activeCooldowns(c.cooldowns, now),
     action: auto?.action || extractAction(q?.forbidden) || extractAction(c.statusMessage) || extractAction(ban?.message),
     autoAt: auto?.at || 0,
+    sleepAt: c.disabled && !auto ? sleepAt : 0,
     lastUsed,
     createdAt: c.createdAt,
     success: c.success,

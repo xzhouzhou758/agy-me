@@ -12,6 +12,7 @@ import { accountView, famSummary, counts, USED_SPAN_MS, type AccountView } from 
 import { usageSource, drainStatus } from './usage.ts';
 import { tiers } from './tiers.ts';
 import * as auto from './autodisable.ts';
+import * as sleeper from './autosleep.ts';
 import { readZip, writeZip } from './zip.ts';
 
 type Handler = (req: IncomingMessage, res: ServerResponse, p: Record<string, string>, url: URL) => Promise<unknown> | unknown;
@@ -58,7 +59,7 @@ async function accountList(maxAgeMs = 5000): Promise<AccountView[]> {
   const tok = src.tokenEvents(Date.now() - USED_SPAN_MS - 3600e3);
   return c.list
     .filter((x) => x.type === 'antigravity')
-    .map((x) => accountView(x, quota.entry(x.id), bans.get(x.id) || null, lu.get(x.id) || 0, Date.now(), auto.autoMark(x.id), tok.get(x.id) || []))
+    .map((x) => accountView(x, quota.entry(x.id), bans.get(x.id) || null, lu.get(x.id) || 0, Date.now(), auto.autoMark(x.id), tok.get(x.id) || [], sleeper.sleepMark(x.id)))
     .sort((a, b) => a.email.localeCompare(b.email));
 }
 // Every id-taking route only reaches antigravity credentials, the only ones the panel shows.
@@ -83,6 +84,7 @@ route('PATCH', '/api/accounts/:id', async (req, _res, p) => {
   if (typeof b.disabled === 'boolean') {
     await cpa.setDisabled(p.id, b.disabled);
     auto.userToggled(p.id, b.disabled);
+    sleeper.dropMark(p.id);
   }
   if (typeof b.note === 'string') await cpa.patchFields(p.id, { note: str(b.note, 200) });
   return (await accountList(0)).find((a) => a.id === p.id);
@@ -107,8 +109,8 @@ route('POST', '/api/accounts/batch', async (req) => {
   const failed: string[] = [];
   for (const id of valid) {
     try {
-      if (op === 'delete') { await cpa.deleteCredential(id); quota.forget(id); auto.forgetAccount(id); }
-      else { await cpa.setDisabled(id, op === 'disable'); auto.userToggled(id, op === 'disable'); }
+      if (op === 'delete') { await cpa.deleteCredential(id); quota.forget(id); auto.forgetAccount(id); sleeper.dropMark(id); }
+      else { await cpa.setDisabled(id, op === 'disable'); auto.userToggled(id, op === 'disable'); sleeper.dropMark(id); }
       ok++;
     } catch { failed.push(id); }
   }
@@ -369,6 +371,11 @@ route('PATCH', '/api/settings', async (req) => {
   }
   if (key === 'autoDisable' || key === 'autoEnable') {
     setSettings({ [key]: !!b.value });
+    return { ok: true, value: !!b.value };
+  }
+  if (key === 'autoSleep') {
+    setSettings({ autoSleep: !!b.value });
+    if (!b.value) await sleeper.wakeAll();
     return { ok: true, value: !!b.value };
   }
   const s = CPA_SETTINGS.find((x) => x[0] === key);

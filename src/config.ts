@@ -49,6 +49,10 @@ export const config = {
   autoProbeMs: Math.max(1, int('AUTO_DISABLE_PROBE_SECONDS', 1800)) * 1000,
   autoIdleMs: Math.max(1, int('AUTO_DISABLE_IDLE_SECONDS', 3600)) * 1000,
 
+  // 闲置自动休眠 (settings switch): how often to look (0 = never, for tests), how long without a request counts as idle
+  autoSleepSweepMs: Math.max(0, int('AUTO_SLEEP_SWEEP_MS', 300000)),
+  autoSleepIdleMs: Math.max(1, int('AUTO_SLEEP_IDLE_SECONDS', 3600)) * 1000,
+
   // Request log: drained from CPA's usage queue into DATA_DIR/usage.sqlite
   usageRetentionDays: Math.max(1, int('USAGE_RETENTION_DAYS', 30)),
   usagePollMs: Math.max(500, int('USAGE_POLL_MS', 5000)),

@@ -375,7 +375,7 @@ function reasonDialog(id){
   if(a.action?.kind==='verify')tags.push(['bad','需要验证账号']);
   if(a.status==='banned'&&!fb&&a.action?.kind!=='verify')tags.push(['bad','账号异常']);
   if(a.status==='cooldown')tags.push(['warn','冷却中']);
-  if(a.disabled)tags.push(['',a.autoAt?'已自动停用':'账号已停用']);
+  if(a.disabled)tags.push(['',a.autoAt?'已自动停用':a.sleepAt?'闲置休眠中':'账号已停用']);
   const url=a.action?.url||'',lab=a.action?.kind==='verify'?'验证':'申诉';
   const at=fb&&a.quotaAt?['额度检测时间',a.quotaAt]:a.autoAt?['自动停用时间',a.autoAt]:null;
   openDialog('错误详情','',`<div class="rs">
@@ -665,6 +665,7 @@ const HELP={
   usage:'请求日志和用量从 CPA 的用量队列读取。读不到时这段时间的请求记不下来，队列只保留 5 分钟。',
   qmin:'后台多久把所有启用的号的额度查一遍。调短数字更新更及时，但会更频繁地调 Google 接口；关掉后只能手动刷新。',
   autoDisable:'Google 回 403（封号、要验证、被停用）的号自动在 CPA 里停用，客户端请求不再分到它。429、401、额度用完不算。',
+  autoSleep:'开启后，1 小时没请求的号在 CPA 里自动停用（休眠）；一有新请求进来，所有休眠的号自动重新启用。休眠期间如果所有号都在休眠，第一个请求可能失败，重试即可。你手动停用的号不会被唤醒。',
   autoEnable:'被自动停用的号每 30 分钟试一次，能用了就自动重新启用。你手动停用的号不会被打开。',
   password:'修改登录本面板的密码。改完后其他地方登录的会话都会退出。',
   logout:'退出当前浏览器的登录。',
@@ -714,6 +715,7 @@ function pageSettings(){
       <div class="rule">${H('后台刷新额度','qmin')}${seg('qmin',[[0,'关'],[5,'5 分'],[15,'15 分'],[30,'30 分'],[60,'60 分']],[0,5,15,30,60].includes(mins)?mins:15,'后台刷新额度')}</div>
       <div class="rule">${H('自动停用','autoDisable')}<button class="switch" role="switch" aria-checked="${!!S.app.autoDisable}" aria-label="自动停用" data-act="appsw:autoDisable"></button></div>
       <div class="rule">${H('自动恢复','autoEnable')}<button class="switch" role="switch" aria-checked="${!!S.app.autoEnable}" aria-label="自动恢复" data-act="appsw:autoEnable"></button></div>
+      <div class="rule">${H('闲置自动休眠','autoSleep')}<button class="switch" role="switch" aria-checked="${!!S.app.autoSleep}" aria-label="闲置自动休眠" data-act="appsw:autoSleep"></button></div>
       <div class="rule">${H('密码','password')}<button class="btn sm" data-act="pwdlg">${ic('key')}修改</button></div>
       <div class="rule">${H('退出登录','logout')}<button class="btn sm" data-act="logout">${ic('logout')}退出</button></div>
     </section>

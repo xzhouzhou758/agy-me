@@ -70,6 +70,7 @@ BASE_PATH=/me
 | `QUOTA_REFRESH_MINUTES` | `15` | 后台刷新额度间隔，0 关闭（设置页可改） |
 | `QUOTA_CONCURRENCY` | `4` | 同时查几个号 |
 | `AUTO_DISABLE_SWEEP_MS` / `AUTO_DISABLE_PROBE_SECONDS` / `AUTO_DISABLE_IDLE_SECONDS` | `30000` / `1800` / `3600` | 403 自动停用的巡检、探测、闲置判定，一般不用动 |
+| `AUTO_SLEEP_SWEEP_MS` / `AUTO_SLEEP_IDLE_SECONDS` | `300000` / `3600` | 闲置自动休眠（设置页开关，默认关）多久查一次（0 不查）/ 多久没请求算闲置 |
 | `QUOTA_BASE_URLS` / `QUOTA_USER_AGENT` | Google 三个地址 / Antigravity UA | 一般不用动 |
 | `COOKIE_SECURE` | 自动 | 自动＝经 https 才带 Secure；`1` / `0` 强制 |
 | `TRUST_PROXY` | `1` | 信任反代的 `X-Real-IP` / `X-Forwarded-*`（登录限速按 IP） |

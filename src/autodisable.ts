@@ -39,6 +39,8 @@ export function userToggled(id: string, disabled: boolean) {
   lastProbe.delete(id);
   state.save(0);
 }
+/** Another module (auto-sleep) turned an account off / on: the sweep must not read that as the user's doing. */
+export function markEnabled(id: string, disabled: boolean) { seenDisabled.set(id, disabled); }
 export function forgetAccount(id: string) {
   delete marks()[id];
   delete sinceMap()[id];

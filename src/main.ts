@@ -14,6 +14,7 @@ import { handleCpaPanel } from './cpapanel.ts';
 import { QueueStore, setUsageSource, startUsageDrainer } from './usage.ts';
 import * as cpa from './cpa.ts';
 import { startAutoDisable } from './autodisable.ts';
+import * as autosleep from './autosleep.ts';
 
 const errs = validateConfig();
 if (errs.length) {
@@ -100,8 +101,9 @@ server.listen(config.port, config.host, () => {
   console.log(`[agy-me] listening on ${config.host}:${config.port}${config.basePath || ''}`);
   startQuotaRefresher();
   startBrowser();
-  startUsageDrainer(usage, config.usagePollMs, config.usageRetentionDays);
+  startUsageDrainer(usage, config.usagePollMs, config.usageRetentionDays, autosleep.onTraffic);
   startAutoDisable();
+  autosleep.startAutoSleep();
   cpa.refreshCreds().catch((e) => console.error('[cpa] initial credential list failed:', e.message));
   setInterval(() => { try { pruneSessions(); } catch (e) { console.error('[prune]', e); } }, 3600000).unref();
 });

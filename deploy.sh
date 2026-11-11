@@ -79,6 +79,14 @@ if [ -f "$DIR/docker-compose.yml" ] && [ -f "$DIR/.env" ]; then
 fi
 
 # ---------- 问配置 ----------
+ask NAME "实例名（容器名用它；同一台机器装第二套时换个名字，如 agy-pool）" "$(basename "$DIR")"
+[[ "$NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || die "实例名只能用字母、数字、_ . -"
+for c in "$NAME" "$NAME-cpa"; do
+  if docker ps -a --format '{{.Names}}' | grep -qx "$c" \
+     && [ "$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$c" 2>/dev/null)" != "$DIR" ]; then
+    die "已经有别的容器叫 $c 了，换个实例名"
+  fi
+done
 ask PORT "面板端口" "8321"
 [[ "$PORT" =~ ^[0-9]+$ ]] && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "端口不对"
 ask BASE_PATH "访问路径前缀（面板挂在哪个子路径；填 / 表示直接挂根）" "/me"
@@ -110,6 +118,9 @@ if [ "$CPA_MODE" = "2" ]; then
 else
   CPA_MODE=1; CPA_URL="http://cpa:8318"; EXTRA_HOSTS=0
   CPA_KEY="$(rand_hex 24)"; CLIENT_KEY="sk-$(rand_hex 20)"
+  ask CPA_PORT "CPA 对宿主机开放的端口（酒馆等客户端调 /v1 用，监听地址同面板；填 0 不开放）" "8318"
+  [[ "$CPA_PORT" =~ ^[0-9]+$ ]] && [ "$CPA_PORT" -le 65535 ] || die "端口不对"
+  [ "$CPA_PORT" = "$PORT" ] && [ "$CPA_PORT" != 0 ] && die "CPA 端口不能和面板端口一样"
 fi
 
 # ---------- 生成文件 ----------
@@ -128,6 +139,7 @@ umask 077
 cat > .env <<ENVEOF
 # 由 deploy.sh 生成。改完执行：docker compose up -d
 AGY_IMAGE=$IMAGE
+AGY_NAME=$NAME
 AGY_PORT=$PORT
 AGY_BIND=$BIND
 BASE_PATH=$BASE_PATH
@@ -159,7 +171,7 @@ if [ "$CPA_MODE" = "1" ]; then
   cat <<YML
   cpa:
     image: $CPA_IMAGE
-    container_name: agy-me-cpa
+    container_name: $NAME-cpa
     volumes:
       - ./cpa/config.yaml:/CLIProxyAPI/config.yaml
       - ./cpa/auths:/root/.cli-proxy-api
@@ -169,20 +181,21 @@ if [ "$CPA_MODE" = "1" ]; then
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
-
 YML
+  [ "$CPA_PORT" != 0 ] && printf '    ports:\n      - "%s:%s:8318"\n' "$BIND" "$CPA_PORT"
+  echo
 fi
-cat <<'YML'
+cat <<YML
   agy-me:
-    image: ${AGY_IMAGE}
-    container_name: agy-me
+    image: \${AGY_IMAGE}
+    container_name: $NAME
     env_file: ./.env
     environment:
       HOST: 0.0.0.0
       PORT: "8321"
       DATA_DIR: /app/data
     ports:
-      - "${AGY_BIND}:${AGY_PORT}:8321"
+      - "\${AGY_BIND}:\${AGY_PORT}:8321"
     volumes:
       - ./data:/app/data
     mem_limit: 128m
@@ -205,6 +218,10 @@ show_url "$PORT" "$BASE_PATH" "$BIND"
 echo "  安装目录：$DIR（配置在 .env，升级重跑本脚本即可）"
 if [ -n "$CLIENT_KEY" ]; then
   echo
+  if [ "$CPA_PORT" != 0 ]; then
+    [ "$BIND" = "127.0.0.1" ] && h=127.0.0.1 || h="$(public_host)"
+    echo "  客户端 API 地址：http://$h:$CPA_PORT/v1"
+  fi
   echo "  客户端 API Key（酒馆之类调用 CPA 用，只显示这一次，之后可在面板「API 密钥」页看/改）："
   echo "    $CLIENT_KEY"
   echo "  CPA 自带面板和账号登录：进面板后在账号页「添加账号」。"
