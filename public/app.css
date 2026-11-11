@@ -917,3 +917,9 @@ button.aq-st{cursor:pointer}
 .rbars .rb.bad{opacity:1;background:color-mix(in srgb,var(--bad) 85%,transparent)}
 .rbars .rb:hover{opacity:1;background:var(--accent)}
 .rbars .rb.bad:hover{background:var(--bad)}
+/* Windows Edge（缩放 125%/150%）悬停时柱子会局部重绘、往下错一像素：整条柱子单独一层绘制，悬停不再改任何画面（看数字靠提示框） */
+.rbars{transform:translateZ(0);backface-visibility:hidden;contain:paint}
+.rbars .rb,.rbars .rb:hover,.rbars .rb.bad:hover{transition:none;opacity:1}
+.rbars .rb:hover{background:color-mix(in srgb,var(--accent) 75%,transparent)}
+.rbars .rb.bad:hover{background:color-mix(in srgb,var(--bad) 85%,transparent)}
+.rbars .rb{cursor:default}
