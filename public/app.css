@@ -926,19 +926,17 @@ button.aq-st{cursor:pointer}
 /* 最近请求小柱：悬停颜色加深（整条已单独一层，无渐变） */
 .rbars .rb:hover{background:var(--accent)}
 .rbars .rb.bad:hover{background:var(--bad)}
-.aob{margin-bottom:16px;border-radius:var(--r);background:var(--fill);border:1px solid var(--hair)}
-.aob>summary{list-style:none;display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;color:var(--dim);user-select:none}
+.aob{margin-bottom:16px}
+.aob>summary{list-style:none;display:flex;align-items:center;gap:10px;padding:6px 4px 10px;cursor:pointer;color:var(--dim);user-select:none;width:max-content;max-width:100%}
 .aob>summary::-webkit-details-marker{display:none}
 .aob>summary>svg{width:16px;height:16px;flex:none}
 .aob>summary>b{color:var(--ink);font-weight:600}
-.aob-t{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--bad-soft);color:var(--bad)}
-.aob-c{margin-left:auto;width:7px;height:7px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px);transition:transform .2s}
+.aob-t{font-size:12px;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--aq-r) 12%,transparent);color:var(--aq-r)}
+.aob-c{margin-left:4px;width:7px;height:7px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px);transition:transform .2s}
 .aob[open] .aob-c{transform:rotate(225deg) translateY(-2px)}
-.aob-l{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:2px 20px;padding:0 14px 12px 40px}
-.aob-r{display:flex;align-items:center;gap:10px;min-width:0;font-size:13px;padding:3px 0}
-.aob-r .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.aob-r small{color:var(--faint,var(--dim));flex:none}
-.aob-r a{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:3px;font-size:12px;color:var(--accent,var(--ink));text-decoration:none}
-.aob-r a svg{width:12px;height:12px}
-.aob-r a:hover{text-decoration:underline}
-@media(max-width:600px){.aob-l{padding-left:14px;grid-template-columns:1fr}}
+.aob-l{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,400px),1fr));gap:14px}
+.aob-card{padding:16px 18px;border-radius:20px;min-width:0}
+.aob-card .aq-ban{height:auto;padding:12px 14px;margin-top:12px}
+.aob-btns{display:flex;gap:6px;flex:none}
+.aob-btns a{color:#fff;background:var(--aq-r);padding:5px 11px;border-radius:999px;font-size:11.5px;font-weight:600;text-decoration:none;white-space:nowrap}
+.aob-btns a:hover{filter:brightness(1.08)}

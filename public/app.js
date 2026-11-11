@@ -270,14 +270,20 @@ function banBanner(){
     ${B.length>1?`<button class="btn sm danger ban-all" data-act="banall">全部停用</button>`:''}</section>`;
 }
 const shortWhy=r=>{r=String(r||'');return /Terms of Service|TOS_VIOLATION/i.test(r)?'违反服务条款':/verif/i.test(r)?'需要验证账号':/disabled/i.test(r)?'服务被停用':(r.replace(/^自动停用\s*·\s*/,'').slice(0,24)||'403');};
-let autoOpen=false;
+const aobKey='agyme-aob-closed';
+const aobOpen=()=>{try{return localStorage.getItem(aobKey)!=='1';}catch(e){return true;}};
 function autoBanner(){
   const A=D.ov.autoOff||[];if(!A.length)return '';
   const g={};A.forEach(b=>{const k=shortWhy(b.reason);g[k]=(g[k]||0)+1;});
-  return `<details class="aob"${autoOpen?' open':''}><summary>${ic('power')}<b>自动停用 ${A.length} 个号</b>${Object.entries(g).map(([k,n])=>`<span class="aob-t">${esc(k)} ${n}</span>`).join('')}<i class="aob-c"></i></summary>
-    <div class="aob-l">${A.map(b=>`<div class="aob-r" title="${esc(b.reason)}"><span class="mono">${esc(b.email)}</span><small title="${esc(new Date(b.at).toLocaleString())}">${esc(ago(b.at))}</small>${b.action?`<a href="${esc(b.action.url)}" target="_blank" rel="noopener noreferrer">${b.action.kind==='appeal'?'申诉':'验证'}${ic('ext')}</a>`:''}</div>`).join('')}</div></details>`;
+  const card=b=>{const why=shortWhy(b.reason),ap=b.action;
+    return `<article class="aq-glass aob-card"><div class="aq-who"><div class="aq-mail" title="${esc(b.email)}">${esc(b.email)}</div>
+      <div class="aq-meta"><span class="aq-st bad">403 异常</span><span class="aq-sep"></span><span title="${esc(new Date(b.at).toLocaleString())}">${esc(ago(b.at))}停用</span></div></div>
+      <div class="aq-ban"><div class="aq-ban-l"><span class="aq-ban-ico"><span class="aq-lock"></span></span><div class="aq-ban-txt"><span>账号访问受限 (HTTP 403)</span><span class="aq-ban-sub">${esc(why)}</span></div></div>
+      <span class="aob-btns"><button type="button" data-act="reason:${esc(b.id)}">查看原因</button>${ap?`<a href="${esc(ap.url)}" target="_blank" rel="noopener noreferrer">${ap.kind==='appeal'?'申诉':'验证'}</a>`:''}</span></div></article>`;};
+  return `<details class="aob"${aobOpen()?' open':''}><summary>${ic('power')}<b>自动停用 ${A.length} 个号</b>${Object.entries(g).map(([k,n])=>`<span class="aob-t">${esc(k)} ${n}</span>`).join('')}<i class="aob-c"></i></summary>
+    <div class="aob-l">${A.map(card).join('')}</div></details>`;
 }
-document.addEventListener('toggle',e=>{if(e.target.classList?.contains('aob'))autoOpen=e.target.open;},true);
+document.addEventListener('toggle',e=>{if(e.target.classList?.contains('aob'))try{e.target.open?localStorage.removeItem(aobKey):localStorage.setItem(aobKey,'1');}catch(_){}},true);
 const cssId=id=>String(id).replace(/[^A-Za-z0-9_-]/g,'_');
 function riskCard(){
   const L=D.ov.dots;
@@ -404,7 +410,7 @@ function errMsg(raw){
   try{const i=raw.indexOf('{');if(i<0)return '';const p=JSON.parse(raw.slice(i));const e=typeof p.error==='string'?JSON.parse(p.error).error:p.error||p;return String(e?.message||'');}catch(e){return '';}
 }
 function reasonDialog(id){
-  const a=D.accounts?.find(x=>x.id===id);if(!a)return;
+  const a=D.accounts?.find(x=>x.id===id)||D.ov?.autoOff?.find(x=>x.id===id);if(!a)return;
   const fb=a.quota?.forbidden||'',raw=fb||a.quotaErr||'';
   const parsed=errMsg(raw)||a.reason||raw||'上游未提供具体原因',both=!!raw&&raw!==parsed;
   const tags=[];
