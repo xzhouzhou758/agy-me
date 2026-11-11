@@ -912,3 +912,8 @@ button.aq-st{cursor:pointer}
   body.nav-side .content{padding-left:calc(max(16px,calc((100vw - 1420px) / 2)) + 260px)}
   body.nav-side .wrap{margin-left:0}
 }
+/* 最近请求小柱：高度取整像素、悬停只换颜色不换透明度（Windows 缩放下透明度动画会让柱子往下错一像素） */
+.rbars .rb{opacity:1;background:color-mix(in srgb,var(--accent) 75%,transparent);transition:background-color .15s}
+.rbars .rb.bad{opacity:1;background:color-mix(in srgb,var(--bad) 85%,transparent)}
+.rbars .rb:hover{opacity:1;background:var(--accent)}
+.rbars .rb.bad:hover{background:var(--bad)}

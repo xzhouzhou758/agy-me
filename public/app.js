@@ -286,7 +286,7 @@ function recentCard(){
   const T=R.filter(r=>!r.failed&&r.ttft).map(r=>r.ttft),top=T.length?Math.max(...T):null,max=Math.max(1000,top||0);
   const bars=R.map(r=>{const h=r.failed?100:Math.max(6,Math.round((r.ttft||0)/max*100));
     const tip=[`${md(r.ts)} ${hms(r.ts)}`,r.account,r.model,r.failed?`${r.status} · ${r.error}`:`首字 ${sec(r.ttft)} · 耗时 ${sec(r.latency)}`].join('\n');
-    return `<i class="rb ${r.failed?'bad':''}" style="height:${h}%" title="${esc(tip)}"></i>`;}).join('');
+    return `<i class="rb ${r.failed?'bad':''}" style="height:${Math.max(3,Math.round(h*.68))}px" title="${esc(tip)}"></i>`;}).join('');
   const ok=R.filter(r=>!r.failed).length;
   return `<section class="card glass"><div class="card-head"><h2>最近请求</h2><small class="faint">${R.length?`${ok}/${R.length} 成功${top!=null?` · 最高 ${sec(top)}`:''}`:''}</small></div>
     ${R.length?`<div class="rbars" role="img" aria-label="最近 ${R.length} 次请求的首字时间">${bars}</div>`:'<p class="faint">还没有请求</p>'}</section>`;
