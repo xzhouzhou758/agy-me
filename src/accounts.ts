@@ -3,26 +3,31 @@
 import type { Cred } from './cpa.ts';
 import type { Entry, Fam, Quota } from './quota.ts';
 import type { TokEvent } from './usage.ts';
-import { activeCooldowns, classify, errText, extractAction, type CooldownView, type Action } from './accerr.ts';
+import { activeCooldowns, classify, errText, quota401, extractAction, type CooldownView, type Action } from './accerr.ts';
 import type { AutoMark } from './store.ts';
 
 export type Status = 'ok' | 'cooldown' | 'banned' | 'disabled';
 export type Ban = { ts: number; status: number; message: string };
 
 const BAN_RE = /terms of service|tos_violation|violat|has been disabled|suspended|\b403\b|permission_denied|forbidden|verify your account|validation_required/i;
+const COOL_RE = /\b429\b|quota|exhaust|rate.?limit|too many requests|cool.?down/i;
 export const isBanText = (s: string | null | undefined) => !!s && BAN_RE.test(s);
 
 /**
- * 停用: disabled in CPA. 封号: Google refused the account (403 from quota calls, a ToS / verify / permission
- * message on the credential, or its latest request in the log was a 403), or its sign-in is dead.
+ * 停用: disabled in CPA (by hand or by auto-disable). 封号 (报错): Google refused the account (403 from quota calls,
+ * a ToS / verify / permission message on the credential, or its latest request in the log was a 401 / 403), or its
+ * sign-in is dead (401 / invalid_grant on the credential or the quota read).
  * 冷却: CPA has it unavailable / in error / cooling down. 正常: the rest.
  */
-export function classifyAccount(c: Pick<Cred, 'disabled' | 'status' | 'statusMessage' | 'unavailable' | 'nextRetryAfter' | 'cooldowns'>, q: Quota | null, ban: Ban | null, now = Date.now()): { status: Status; reason: string } {
+export function classifyAccount(c: Pick<Cred, 'disabled' | 'status' | 'statusMessage' | 'unavailable' | 'nextRetryAfter' | 'cooldowns'>, q: Quota | null, ban: Ban | null, now = Date.now(), qErr: string | null = null): { status: Status; reason: string } {
   if (c.disabled) return { status: 'disabled', reason: '' };
   if (q?.forbidden) return { status: 'banned', reason: errText(q.forbidden, 403) };
   const kind = classify(c.statusMessage);
   if (kind === 'banned' || kind === 'verify' || kind === 'auth' || (kind === 'error' && (c.status === 'error' || c.unavailable))) return { status: 'banned', reason: errText(c.statusMessage) };
+  // any other error CPA reports is 报错 too, except rate limits / used-up quota (those are 冷却)
+  if (c.status === 'error' && !COOL_RE.test(c.statusMessage || '')) return { status: 'banned', reason: errText(c.statusMessage) || '报错' };
   if (ban) return { status: 'banned', reason: errText(ban.message, ban.status) };
+  if (quota401(qErr)) return { status: 'banned', reason: errText(qErr, 401) };
   const cds = activeCooldowns(c.cooldowns, now);
   const authCd = cds.find((x) => x.scope !== 'model');
   const retry = c.nextRetryAfter ? Date.parse(c.nextRetryAfter) : NaN;
@@ -99,7 +104,7 @@ export function usedTokens(q: Quota | null, ev: TokEvent[], now = Date.now()): U
 export function accountView(c: Cred, e: Entry | null, ban: Ban | null, lastUsed: number, now = Date.now(), mark: AutoMark | null = null, ev: TokEvent[] = [], sleepAt = 0): AccountView {
   const q = e?.q || null;
   const auto = c.disabled ? mark : null;
-  const { status, reason: r } = classifyAccount(c, q, ban, now);
+  const { status, reason: r } = classifyAccount(c, q, ban, now, e?.err || null);
   const reason = auto ? '自动停用 · ' + auto.reason : r;
   return {
     id: c.id,

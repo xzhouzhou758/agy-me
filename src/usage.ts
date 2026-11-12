@@ -46,7 +46,7 @@ export interface UsageSource {
   usage(range: string, tzOffsetMin: number, now?: number): Usage;
   /** auth file -> last request time (ms) */
   lastUsed(): Map<string, number>;
-  /** auth file -> its latest request in the window, when that was a 403 */
+  /** auth file -> its latest request in the window, when that was a 401 / 403 */
   bans(sinceMs: number): Map<string, Ban>;
   /** auth file -> every request since sinceMs: model actually used, time, total tokens */
   tokenEvents(sinceMs: number): Map<string, TokEvent[]>;
@@ -291,10 +291,10 @@ export class QueueStore implements UsageSource {
   bans(sinceMs: number): Map<string, Ban> {
     return this.q((d) => {
       // latest by request time (rows can land out of order), id breaks ties
-      const rows = d.prepare(`SELECT k, ts, msg FROM (SELECT auth_file AS k, timestamp_ms AS ts, failed, status AS st, fail_body AS msg,
+      const rows = d.prepare(`SELECT k, ts, st, msg FROM (SELECT auth_file AS k, timestamp_ms AS ts, failed, status AS st, fail_body AS msg,
           ROW_NUMBER() OVER (PARTITION BY auth_file ORDER BY timestamp_ms DESC, id DESC) AS rn
-        FROM events WHERE timestamp_ms >= ? AND auth_file <> '') WHERE rn = 1 AND failed = 1 AND st = 403`).all(sinceMs) as any[];
-      return new Map(rows.map((r) => [String(r.k), { ts: Number(r.ts), status: 403, message: String(r.msg || '').slice(0, 4000) }]));
+        FROM events WHERE timestamp_ms >= ? AND auth_file <> '') WHERE rn = 1 AND failed = 1 AND st IN (401, 403)`).all(sinceMs) as any[];
+      return new Map(rows.map((r) => [String(r.k), { ts: Number(r.ts), status: Number(r.st), message: String(r.msg || '').slice(0, 4000) }]));
     }, new Map());
   }
 }

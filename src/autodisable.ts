@@ -1,7 +1,8 @@
 // Auto-disable accounts Google answers with 403 (ToS ban / "verify your account" / suspended), so CPA stops
 // routing into them; only accounts this module disabled (state.auto) are ever re-enabled, after a probe succeeds.
-// 403 signals: the request log (an account's latest request was a 403), the quota fetch (forbidden), CPA's
-// credential status message, and the probe. 429 / 401 / quota answers never count (match403).
+// Signals (403 refusal, or 401 = sign-in dead after CPA's refresh): the request log (an account's latest request
+// was a 401 / 403), the quota fetch (forbidden / 401 error), CPA's credential status message, and the probe.
+// 429 / quota answers never count.
 // Probing works on a disabled credential: CPA's /requests/api-call looks auths up by index and never checks
 // Disabled. Quota calls keep working on 403 accounts, so the probe is a tiny generation. Idle accounts get the
 // probe now and then too, so a ban nobody routes into still turns the account off.
@@ -10,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import { config } from './config.ts';
 import { state, settings, type AutoMark } from './store.ts';
-import { match403, extractAction, type Action } from './accerr.ts';
+import { match401, matchBad, quota401, extractAction, type Action } from './accerr.ts';
 import { usageSource } from './usage.ts';
 import * as cpa from './cpa.ts';
 import * as quota from './quota.ts';
@@ -51,17 +52,22 @@ export type Evidence = { reason: string; action: Action | null };
 /** A 403 signal newer than `after`, from CPA's status, the request log or the quota read; null when there is none. */
 export function evidence(c: Pick<cpa.Cred, 'status' | 'unavailable' | 'statusMessage'>, e: quota.Entry | null, ban: Ban | null, after: number, now = Date.now()): Evidence | null {
   if (c.status === 'error' || c.unavailable) {
-    const r = match403(c.statusMessage);
+    const r = matchBad(c.statusMessage);
     if (r) return { reason: r, action: extractAction(c.statusMessage) };
   }
   if (ban && ban.ts > after) {
-    const r = match403('403 ' + ban.message);
+    const r = ban.status === 401 ? match401('401 ' + ban.message) || '401 登录失效' : matchBad('403 ' + ban.message);
     if (r) return { reason: r, action: extractAction(ban.message) };
   }
   const f = e?.q?.forbidden;
   if (f && e!.at > after && e!.at > now - QUOTA_FRESH_MS) {
-    const r = match403('403 ' + f);
+    const r = matchBad('403 ' + f);
     if (r) return { reason: r, action: extractAction(f) };
+  }
+  const er = e?.err;
+  if (er && e!.at > after && e!.at > now - QUOTA_FRESH_MS) {
+    const r = quota401(er);
+    if (r) return { reason: r, action: null };
   }
   return null;
 }
@@ -86,7 +92,7 @@ async function probeModel(id: string): Promise<string> {
 }
 
 export type Probe = { ok: boolean | null; reason?: string; action?: Action | null };
-/** One tiny generation through the credential. true = gets past Google's permission check, false = 403, null = can't tell. */
+/** One tiny generation through the credential. true = gets past Google's permission check, false = 403 / 401, null = can't tell. */
 export async function probe(c: cpa.Cred): Promise<Probe> {
   if (!c.projectId) return { ok: null }; // without a project Google answers 403 "no valid license", which says nothing about the account
   const headers = { Authorization: 'Bearer $TOKEN$', 'Content-Type': 'application/json', 'User-Agent': config.quotaUserAgent };
@@ -98,12 +104,13 @@ export async function probe(c: cpa.Cred): Promise<Probe> {
     let r: { status: number; body: string };
     try { r = await cpa.apiCall(c.authIndex, 'POST', base + '/v1internal:generateContent', headers, body); } catch { return { ok: null }; }
     if (r.status === 403) {
-      const reason = match403('403 ' + r.body);
+      const reason = matchBad('403 ' + r.body);
       return reason ? { ok: false, reason, action: extractAction(r.body) } : { ok: null };
     }
+    if (r.status === 401) return { ok: false, reason: match401('401 ' + r.body) || '401 登录失效', action: null };
     // 2xx works; 429 is plain quota (CPA cools it down); 400 / 404 got past the permission check
     if ((r.status >= 200 && r.status < 300) || r.status === 400 || r.status === 404 || r.status === 429) return { ok: true };
-    if (r.status && r.status < 500) return { ok: null }; // 401 etc.
+    if (r.status && r.status < 500) return { ok: null };
   }
   return { ok: null };
 }

@@ -4,11 +4,13 @@
 const TIERS=['PRO','ULTRA','FREE'];
 const STATUSES=['ok','cooldown','banned','disabled'];
 const tierOf=a=>a.tier||'';
+/** 报错 = 正在报错的 + 因报错被自动停用的；停用 = 自动停用 + 手动停用（两栏会有重叠） */
+const hasStatus=(a,s)=>s==='banned'?a.status==='banned'||!!a.autoAt:s==='disabled'?a.status==='disabled'||!!a.disabled:a.status===s;
 function match(a,f,skip){
   const q=(f.q||'').trim().toLowerCase();
   if(q&&!String(a.email||'').toLowerCase().includes(q)&&!String(a.note||'').toLowerCase().includes(q))return false;
   if(skip!=='tier'&&f.tier&&tierOf(a)!==f.tier)return false;
-  if(skip!=='status'&&f.status&&a.status!==f.status)return false;
+  if(skip!=='status'&&f.status&&!hasStatus(a,f.status))return false;
   return true;
 }
 /** 当前筛选下可见的账号（保持原顺序） */
@@ -21,7 +23,7 @@ function tierCounts(list,f){
 }
 function statusCounts(list,f){
   const n={all:0};for(const s of STATUSES)n[s]=0;
-  for(const a of list){if(!match(a,f,'status'))continue;n.all++;n[a.status]++;}
+  for(const a of list){if(!match(a,f,'status'))continue;n.all++;for(const s of STATUSES)if(hasStatus(a,s))n[s]++;}
   return n;
 }
 /** 表头全选：只动当前可见的行 */
@@ -48,7 +50,7 @@ const prune=(sel,visibleIds)=>{const v=new Set(visibleIds);return new Set([...se
 function reconcile(sel,anchor,visibleIds,reset){
   return {sel:prune(sel,visibleIds),anchor:!reset&&anchor!=null&&visibleIds.includes(anchor)?anchor:null};
 }
-/* 排序（表头点选）：键前加 '-' 是倒序。状态（封号 > 冷却 > 正常 > 停用）、邮箱、等级（ULTRA 在前）、最近使用（近的在前）、
+/* 排序（表头点选）：键前加 '-' 是倒序。状态（报错 > 冷却 > 正常 > 停用）、邮箱、等级（ULTRA 在前）、最近使用（近的在前）、
    5H / 7天剩余（少的在前；各模型族取最少，重置时间已过的算已恢复）、最早恢复（还没满的窗口里最早的重置时间）。
    没有数据的不管正序倒序都排最后，并列按邮箱 A→Z */
 const SORTS=[['quota','模型配额'],['gemini','Gemini 3.8'],['claude','Claude / GPT'],['argon','Gemini 4 Argon'],['carbon','Gemini 4 Carbon'],['created','导入时间'],

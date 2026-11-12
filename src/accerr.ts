@@ -120,6 +120,24 @@ const STRONG_403 = /"code"\s*:\s*403\b|PERMISSION_DENIED|verify your account|VAL
 const LOOSE_NOT = /\b(429|401)\b|quota|rate.?limit|cool.?down|too many requests|unauthori[sz]ed|expired/i;
 const LOOSE_403 = /\b403\b|forbidden|\b(account|user|project)\b.{0,40}\b(disabled|suspended)\b|has been (disabled|suspended)|\bsuspended\b/i;
 
+// 401 = the account's sign-in is dead (CPA already tried its refresh). Counts as 报错 / 封号 and is auto-disabled too.
+const NOT_401 = /"code"\s*:\s*(429|403)\b|RESOURCE_EXHAUSTED|PERMISSION_DENIED/i;
+const IS_401 = /"code"\s*:\s*401\b|UNAUTHENTICATED|invalid_grant|invalid_token|\b401\b|unauthori[sz]ed|token.{0,20}revoked|refresh.{0,20}fail/i;
+
+/** "401 <short reason>" when the text says the account's sign-in is dead, else null. */
+export function match401(s: string | null | undefined): string | null {
+  const t = String(s || '');
+  if (!t || NOT_401.test(t) || !IS_401.test(t)) return null;
+  return /invalid_grant|refresh.{0,20}fail|revoked/i.test(t) ? '401 授权已失效，需要重新登录' : '401 登录失效';
+}
+/** A quota read that failed because Google answered 401 (only Google's own answer: CPA management errors never count). */
+export function quota401(err: string | null | undefined): string | null {
+  const m = /^fetchAvailableModels 401:\s*([\s\S]*)/.exec(String(err || ''));
+  return m ? match401('401 ' + m[1]) || '401 登录失效' : null;
+}
+/** 403 refusal or dead sign-in: what auto-disable acts on. */
+export const matchBad = (s: string | null | undefined): string | null => match403(s) || match401(s);
+
 /** "403 <Google's message>" when the text is a 403 refusal of the account, else null. */
 export function match403(s: string | null | undefined): string | null {
   const t = String(s || '');

@@ -58,7 +58,7 @@ const sec=ms=>ms==null?'—':ms<1000?ms+'ms':(ms/1000).toFixed(ms<1e4?2:1)+'s';
 const pctOf=(a,b)=>b?Math.round(a/b*1000)/10:0;
 const lv=p=>p>=40?'good':p>=15?'mid':'low';
 const famIc=m=>/claude/i.test(m||'')?CLA:/gpt/i.test(m||'')?GPT:GEM;
-const ST={ok:['good','正常'],cooldown:['warn','冷却'],banned:['bad','封号'],disabled:['','停用']};
+const ST={ok:['good','正常'],cooldown:['warn','冷却'],banned:['bad','报错'],disabled:['','停用']};
 const stChip=a=>`<span class="chip ${ST[a.status][0]}"${a.reason?` title="${esc(a.reason)}"`:''}><span class="dot"></span>${ST[a.status][1]}</span>`;
 /* 档位徽章：发光胶囊 */
 function tierTag(t){if(!t)return '';const k=String(t).toLowerCase();return `<span class="gb ${esc(k)} sm"><span class="gb-aura"></span><span class="gb-pill"><span class="gb-beam"></span><span class="gb-t">${esc(k[0].toUpperCase()+k.slice(1))}</span></span></span>`;}
@@ -130,12 +130,13 @@ function quotaSlots(a){
 function quotaBlock(a,cls=''){
   const q=a.quota;
   if(q?.forbidden||a.autoAt){const ap=a.action,why=a.autoAt?shortWhy(a.reason||q?.forbidden):(/TOS_VIOLATION|violation of Terms/i.test(q.forbidden)?'违反服务条款':'上游拒绝访问');
-    return `<div class="aq-ban"><div class="aq-ban-l"><span class="aq-ban-ico"><span class="aq-lock"></span></span><div class="aq-ban-txt"><span>账号访问受限 (HTTP 403)</span><span class="aq-ban-sub">${esc(why)}${a.autoAt?' · 已自动停用':''}</span></div></div><span class="aob-btns"><button type="button" data-act="reason:${esc(a.id)}">查看原因</button>${ap?`<a href="${esc(ap.url)}" target="_blank" rel="noopener noreferrer">${ap.kind==='appeal'?'申诉':'验证'}</a>`:''}</span></div>`;}
+    return `<div class="aq-ban"><div class="aq-ban-l"><span class="aq-ban-ico"><span class="aq-lock"></span></span><div class="aq-ban-txt"><span>${is401(a)?'登录失效 (HTTP 401)':'账号访问受限 (HTTP 403)'}</span><span class="aq-ban-sub">${esc(why)}${a.autoAt?' · 已自动停用':''}</span></div></div><span class="aob-btns"><button type="button" data-act="reason:${esc(a.id)}">查看原因</button>${ap?`<a href="${esc(ap.url)}" target="_blank" rel="noopener noreferrer">${ap.kind==='appeal'?'申诉':'验证'}</a>`:''}</span></div>`;}
   if(!q)return `<div class="aq-none">${a.quotaErr?'额度读取失败':'暂无模型额度遥测数据'}</div>`;
   return `<div class="aq-quota ${cls}">${quotaSlots(a).map(x=>gauge(...x)).join('')}</div>`;
 }
 const ST_CLS={ok:'',cooldown:'warn',banned:'bad',disabled:'off'};
-const stLabel=a=>a.autoAt?'403 异常':a.status==='banned'?(a.quota?.forbidden?'403 异常':'异常'):a.status==='cooldown'?'冷却中':a.status==='disabled'?'已停用':'正常';
+const is401=a=>!a.quota?.forbidden&&/\b401\b|登录失效|授权已失效/.test(a.reason||'');
+const stLabel=a=>a.autoAt?(is401(a)?'401 异常':'403 异常'):a.status==='banned'?(a.quota?.forbidden?'403 异常':is401(a)?'401 异常':'报错'):a.status==='cooldown'?'冷却中':a.status==='disabled'?'已停用':'正常';
 function stTag(a){
   const c=a.autoAt?'bad':ST_CLS[a.status],t=esc(stLabel(a));
   return a.status!=='ok'&&(a.autoAt||a.reason||a.quotaErr||a.quota?.forbidden)?`<button type="button" class="aq-st ${c}" data-act="reason:${esc(a.id)}" title="查看原因">${t}</button>`:`<span class="aq-st ${c}">${t}</span>`;
@@ -272,7 +273,7 @@ function banBanner(){
     ${B.map(b=>`<div class="ban-r"><span class="mono">${esc(b.email)}</span><small>${esc(b.reason)}</small>${b.action?`<a class="btn sm ghost" href="${esc(b.action.url)}" target="_blank" rel="noopener noreferrer">${ic('ext')}${b.action.kind==='appeal'?'申诉':'验证'}</a>`:''}<button class="btn sm danger" data-act="banoff:${esc(b.id)}">${ic('power')}停用</button></div>`).join('')}</div>
     ${B.length>1?`<button class="btn sm danger ban-all" data-act="banall">全部停用</button>`:''}</section>`;
 }
-const shortWhy=r=>{r=String(r||'');return /Terms of Service|TOS_VIOLATION/i.test(r)?'违反服务条款':/verif/i.test(r)?'需要验证账号':/disabled/i.test(r)?'服务被停用':(r.replace(/^自动停用\s*·\s*/,'').slice(0,24)||'403');};
+const shortWhy=r=>{r=String(r||'');return /Terms of Service|TOS_VIOLATION/i.test(r)?'违反服务条款':/verif/i.test(r)?'需要验证账号':/disabled/i.test(r)?'服务被停用':/\b401\b|登录失效|授权已失效|invalid_grant/i.test(r)?'登录失效':(r.replace(/^自动停用\s*·\s*/,'').slice(0,24)||'403');};
 const aobKey='agyme-aob-closed';
 const aobOpen=()=>{try{return localStorage.getItem(aobKey)!=='1';}catch(e){return true;}};
 function autoBanner(){
@@ -708,7 +709,7 @@ const HELP={
   cpapanel:'在新标签页打开 CPA 自带的管理面板，能看到本面板没有的原始配置。在那边改的东西会直接生效。',
   usage:'请求日志和用量从 CPA 的用量队列读取。读不到时这段时间的请求记不下来，队列只保留 5 分钟。',
   qmin:'后台多久把所有启用的号的额度查一遍。调短数字更新更及时，但会更频繁地调 Google 接口；关掉后只能手动刷新。',
-  autoDisable:'Google 回 403（封号、要验证、被停用）的号自动在 CPA 里停用，客户端请求不再分到它。429、401、额度用完不算。',
+  autoDisable:'Google 回 403（封号、要验证、被停用）或 401（登录失效）的号自动在 CPA 里停用，客户端请求不再分到它。429、额度用完不算。',
   autoSleep:'开启后，1 小时没请求的号在 CPA 里自动停用（休眠）；一有新请求进来，所有休眠的号自动重新启用。休眠期间如果所有号都在休眠，第一个请求可能失败，重试即可。你手动停用的号不会被唤醒。',
   autoEnable:'被自动停用的号每 30 分钟试一次，能用了就自动重新启用。你手动停用的号不会被打开。',
   password:'修改登录本面板的密码。改完后其他地方登录的会话都会退出。',

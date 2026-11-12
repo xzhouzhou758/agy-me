@@ -112,9 +112,11 @@ test('the quota read (forbidden) and an idle probe catch 403s too; probes use a 
   }
 });
 
-test('429 / 401 / quota text never turn an account off; manual-disabled stays untouched', async () => {
+test('429 / quota text never turn an account off; a dead sign-in (401) does; manual-disabled stays untouched', async () => {
   await sleep(1500); // several sweeps
-  for (const id of ['a429', 'a401', 'aq403', 'acd', 'aok']) assert.equal(off(id), false, id);
+  for (const id of ['a429', 'aq403', 'acd', 'aok']) assert.equal(off(id), false, id);
+  assert.equal(off('a401'), true, 'a401');
+  assert.match((await acc('a401')).reason, /401/);
   assert.equal(off('amanual'), true);
   assert.equal((await acc('amanual')).autoAt, 0);
   // autoEnable is off: nothing came back although a403's probe would now succeed
