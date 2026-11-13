@@ -66,19 +66,23 @@ const NOW = Date.parse('2026-11-11T12:00:00Z');
 const at = (h: number) => new Date(NOW + h * 3600e3).toISOString();
 const fam = (h5: number | null, wk: number | null, r5 = at(2), rw = at(48)) => ({ h5: h5 == null ? null : { frac: h5, reset: r5 }, week: wk == null ? null : { frac: wk, reset: rw } });
 const S = [
-  { id: 'u', email: 'uma@x.io', tier: 'FREE', status: 'ok', lastUsed: NOW - 5000, quota: { gemini: fam(0.5, 0.9), claude: fam(0.2, 0.8, at(1)) } },
-  { id: 'v', email: 'vic@x.io', tier: 'ULTRA', status: 'cooldown', lastUsed: NOW - 1000, quota: { gemini: fam(1, 1), claude: fam(1, 0.3, at(3), at(5)) } },
-  { id: 'w', email: 'wes@x.io', tier: 'PRO', status: 'banned', lastUsed: 0, quota: { forbidden: '403', gemini: null, claude: null } },
+  { id: 'u', email: 'uma@x.io', tier: 'FREE', status: 'ok', lastUsed: NOW - 5000, createdAt: at(-10), quota: { gemini: fam(0.5, 0.9), claude: fam(0.2, 0.8, at(1)) } },
+  { id: 'v', email: 'vic@x.io', tier: 'ULTRA', status: 'cooldown', lastUsed: NOW - 1000, createdAt: at(-30), quota: { gemini: fam(1, 1), claude: fam(1, 0.3, at(3), at(5)) } },
+  { id: 'w', email: 'wes@x.io', tier: 'PRO', status: 'banned', lastUsed: 0, createdAt: at(-20), quota: { forbidden: '403', gemini: null, claude: null } },
   { id: 'x', email: 'xia@x.io', tier: null, status: 'disabled', lastUsed: NOW - 9000, quota: null },
-  { id: 'y', email: 'yan@x.io', tier: 'PRO', status: 'ok', lastUsed: NOW - 1000, quota: { gemini: fam(0, 1, at(-1)), claude: fam(1, 1) } }, // empty 5h already reset -> full
-  { id: 'z', email: 'zed@x.io', tier: 'FREE', status: 'ok', lastUsed: 0, quota: { gemini: fam(0.2, 0.3, at(4), at(10)) } },
+  { id: 'y', email: 'yan@x.io', tier: 'PRO', status: 'ok', lastUsed: NOW - 1000, createdAt: at(-20), quota: { gemini: fam(0, 1, at(-1)), claude: fam(1, 1) } }, // empty 5h already reset -> full
+  { id: 'z', email: 'zed@x.io', tier: 'FREE', status: 'ok', lastUsed: 0, createdAt: at(-5), quota: { gemini: fam(0.2, 0.3, at(4), at(10)) } },
 ];
 const sorted = (k: string) => AF.sort(S, k, NOW).map((a: any) => a.id);
 
-test('sort: status (default) both ways, ties by email; email both ways', () => {
-  assert.deepEqual(sorted(''), ['w', 'v', 'u', 'y', 'z', 'x']);
-  assert.deepEqual(sorted('status'), sorted(''));
+test('sort: created (default), status, quota and email both ways, ties by email', () => {
+  assert.deepEqual(sorted(''), ['v', 'w', 'y', 'u', 'z', 'x']);
+  assert.deepEqual(sorted('created'), sorted(''));
+  assert.deepEqual(sorted('-created'), ['z', 'u', 'w', 'y', 'v', 'x'], 'ties stay A→Z, missing last');
+  assert.deepEqual(sorted('status'), ['w', 'v', 'u', 'y', 'z', 'x']);
   assert.deepEqual(sorted('-status'), ['x', 'u', 'y', 'z', 'v', 'w'], 'ties stay A→Z');
+  assert.deepEqual(sorted('quota'), ['z', 'u', 'v', 'y', 'w', 'x']);
+  assert.deepEqual(sorted('-quota'), ['y', 'v', 'u', 'z', 'w', 'x']);
   assert.deepEqual(sorted('email'), ['u', 'v', 'w', 'x', 'y', 'z']);
   assert.deepEqual(sorted('-email'), ['z', 'y', 'x', 'w', 'v', 'u']);
   assert.deepEqual(AF.sort([...S].reverse(), 'email', NOW).map((a: any) => a.id), sorted('email'), 'input order does not matter');
@@ -101,11 +105,18 @@ test('sort: earliest comeback, recently used, tier (each both ways, missing last
   assert.deepEqual(sorted('-used'), ['x', 'u', 'v', 'y', 'w', 'z']);
   assert.deepEqual(sorted('tier'), ['v', 'w', 'y', 'u', 'z', 'x']);
   assert.deepEqual(sorted('-tier'), ['u', 'z', 'w', 'y', 'v', 'x']);
-  assert.deepEqual(AF.SORTS.map((s: any) => s[0]), ['email', 'status', 'tier', 'used', 'h5', 'week', 'reset']);
+  assert.deepEqual(AF.SORTS.map((s: any) => s[0]), [
+    'quota', 'gemini', 'claude', 'argon', 'carbon', 'created',
+    'email', 'status', 'tier', 'used', 'h5', 'week', 'reset',
+  ]);
 });
 
-test('header clicks: new column ascending, same column flips; default is status', () => {
-  assert.equal(AF.nextSort('', 'status'), '-status');
+test('header clicks: quota cycles desc -> asc -> default; other columns flip asc <-> desc', () => {
+  assert.equal(AF.nextSort('', 'quota'), '-quota');
+  assert.equal(AF.nextSort('-quota', 'quota'), 'quota');
+  assert.equal(AF.nextSort('quota', 'quota'), '');
+  assert.equal(AF.nextSort('', 'status'), 'status');
+  assert.equal(AF.nextSort('status', 'status'), '-status');
   assert.equal(AF.nextSort('', 'h5'), 'h5');
   assert.equal(AF.nextSort('h5', 'h5'), '-h5');
   assert.equal(AF.nextSort('-h5', 'h5'), 'h5');

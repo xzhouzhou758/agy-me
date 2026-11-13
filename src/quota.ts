@@ -272,6 +272,10 @@ export function progress() {
   return { running: running > 0 || queue.length > 0, total: job.total, done: job.done, startedAt: job.startedAt };
 }
 
+const passDone: (() => void)[] = [];
+/** Called whenever the refresh queue runs empty (a background pass or a single refresh finished). */
+export function onPassDone(f: () => void) { passDone.push(f); }
+
 const waiters = new Map<string, ((e: Entry) => void)[]>();
 function pump() {
   while (running < config.quotaConcurrency && queue.length) {
@@ -285,6 +289,7 @@ function pump() {
       waiters.delete(id);
       pump();
       for (const f of w) f(en);
+      if (!running && !queue.length) for (const f of passDone) f();
     });
   }
 }

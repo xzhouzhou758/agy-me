@@ -13,6 +13,7 @@ import { usageSource, drainStatus } from './usage.ts';
 import { tiers } from './tiers.ts';
 import * as auto from './autodisable.ts';
 import * as sleeper from './autosleep.ts';
+import * as excluder from './autoexclude.ts';
 import { readZip, writeZip } from './zip.ts';
 
 type Handler = (req: IncomingMessage, res: ServerResponse, p: Record<string, string>, url: URL) => Promise<unknown> | unknown;
@@ -376,6 +377,11 @@ route('PATCH', '/api/settings', async (req) => {
   if (key === 'autoSleep') {
     setSettings({ autoSleep: !!b.value });
     if (!b.value) await sleeper.wakeAll();
+    return { ok: true, value: !!b.value };
+  }
+  if (key === 'autoExclude') {
+    setSettings({ autoExclude: !!b.value });
+    await excluder.sync(); // off: takes this panel's entries out again
     return { ok: true, value: !!b.value };
   }
   const s = CPA_SETTINGS.find((x) => x[0] === key);

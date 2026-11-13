@@ -63,6 +63,12 @@ export const config = {
   browserUpstream: str('BROWSER_UPSTREAM', 'http://127.0.0.1:3011').replace(/\/+$/, ''),
   browserIdleMinutes: int('BROWSER_IDLE_MINUTES', 30), // stop the container after this long with no viewer; 0 = never
 
+  // CPA model catalog (models.catalog in CPA's config.yaml): the official one plus the antigravity models the
+  // enabled accounts really have. Written into CATALOG_PATH (CPA's catalog dir, mounted read-write here).
+  catalogPath: str('CATALOG_PATH', '/app/catalog/models.json'),
+  catalogURLs: (str('CATALOG_URLS') || 'https://models.router-for.me/models.json,https://raw.githubusercontent.com/router-for-me/models/refs/heads/main/models.json')
+    .split(',').map((s) => s.trim()).filter(Boolean),
+
   maxBodyBytes: int('MAX_BODY_MB', 20) * 1024 * 1024,
 };
 

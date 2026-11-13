@@ -122,9 +122,9 @@ function gauge(name,icon,f,used){
 }
 /* Claude 那格写 5.5 还是 4.6：看这个号实际能用的模型 */
 const claudeVer=q=>(q.models||[]).some(m=>/^claude-.*5-5/i.test(m.name))?'5.5':'4.6';
-function quotaSlots(a){
+function quotaSlots(a,compact){
   const q=a.quota,u=a.used||{},none={h5:null,week:null},on=(f,st)=>st==='on'?(f||none):null;
-  return [['Gemini 3.8','gemini',q.gemini||none,u.gemini],[`Claude ${claudeVer(q)} / GPT`,'claude',q.claude||none,u.claude],
+  return [[compact?'Gemini 4 Hydrogen':'Gemini 3.8 / Gemini 4 Hydrogen','gemini',q.gemini||none,u.gemini],[`Claude ${claudeVer(q)} / GPT`,'claude',q.claude||none,u.claude],
     ['Gemini 4 Argon','gemini',on(q.argon,q.argonState),u.argon],['Gemini 4 Carbon','gemini',on(q.carbon,q.carbonState),u.carbon]];
 }
 function quotaBlock(a,cls=''){
@@ -132,7 +132,7 @@ function quotaBlock(a,cls=''){
   if(q?.forbidden||a.autoAt){const ap=a.action,why=a.autoAt?shortWhy(a.reason||q?.forbidden):(/TOS_VIOLATION|violation of Terms/i.test(q.forbidden)?'违反服务条款':'上游拒绝访问');
     return `<div class="aq-ban"><div class="aq-ban-l"><span class="aq-ban-ico"><span class="aq-lock"></span></span><div class="aq-ban-txt"><span>${is401(a)?'登录失效 (HTTP 401)':'账号访问受限 (HTTP 403)'}</span><span class="aq-ban-sub">${esc(why)}${a.autoAt?' · 已自动停用':''}</span></div></div><span class="aob-btns"><button type="button" data-act="reason:${esc(a.id)}">查看原因</button>${ap?`<a href="${esc(ap.url)}" target="_blank" rel="noopener noreferrer">${ap.kind==='appeal'?'申诉':'验证'}</a>`:''}</span></div>`;}
   if(!q)return `<div class="aq-none">${a.quotaErr?'额度读取失败':'暂无模型额度遥测数据'}</div>`;
-  return `<div class="aq-quota ${cls}">${quotaSlots(a).map(x=>gauge(...x)).join('')}</div>`;
+  return `<div class="aq-quota ${cls}">${quotaSlots(a,cls==='card-quota').map(x=>gauge(...x)).join('')}</div>`;
 }
 const ST_CLS={ok:'',cooldown:'warn',banned:'bad',disabled:'off'};
 const is401=a=>!a.quota?.forbidden&&/\b401\b|登录失效|授权已失效/.test(a.reason||'');
@@ -338,13 +338,17 @@ function batchBar(){
 }
 /* 账号页：一个号一张卡 / 一行 */
 const A_cb=a=>`<input type="checkbox" class="cb" data-sel="${esc(a.id)}" ${ui.acc.sel.has(a.id)?'checked':''} aria-label="选择 ${esc(a.email)}">`;
-const A_acts=a=>`<button class="btn sm ghost icon" data-act="detail:${esc(a.id)}" aria-label="详情" title="详情">${ic('sliders')}</button>`;
-const A_who=a=>`<div class="aq-who"><div class="aq-mail" title="${esc(a.email)}">${esc(a.email)}</div><div class="aq-meta">${tierTag(a.tier)}${stTag(a)}<span class="aq-sep"></span><span title="最近使用">${a.lastUsed?esc(ago(a.lastUsed)):'从未'}</span>${a.note?`<span class="aq-sep"></span><span title="备注">${esc(a.note)}</span>`:''}</div></div>`;
+const A_acts=a=>[['detail','sliders','详情'],['refreshone','refresh','刷新额度'],['exportone','download','导出'],['delone','trash','删除']].map(([act,icon,label])=>`<button type="button" class="btn sm ghost icon" data-act="${act}:${esc(a.id)}" aria-label="${label}" title="${label}">${ic(icon)}</button>`).join('');
+const A_last=a=>{
+  const date=a.lastUsed?new Date(a.lastUsed):null;
+  return date&&Number.isFinite(date.getTime())?`<time class="aq-last" datetime="${date.toISOString()}" title="最后使用">${esc(date.toLocaleDateString('zh-CN'))}<small>${esc(date.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false}))}</small></time>`:'<span class="aq-last" title="最后使用">从未</span>';
+};
+const A_who=a=>`<div class="aq-who"><div class="aq-mail" title="${esc(a.email)}">${esc(a.email)}</div><div class="aq-meta">${tierTag(a.tier)}${stTag(a)}${a.note?`<span class="aq-sep"></span><span title="备注">${esc(a.note)}</span>`:''}</div></div>`;
 const A_tog=a=>`<button type="button" role="switch" class="aq-tog" data-act="toggle:${esc(a.id)}" aria-label="启用 ${esc(a.email)}" aria-checked="${!a.disabled}"><span>${a.disabled?'停用':'启用'}</span><span class="aq-sw" aria-hidden="true"></span></button>`;
 const accCard=a=>`<article class="aq-card aq-glass ${a.tier==='ULTRA'?'aq-ultra':''} ${a.disabled&&!a.autoAt?'off':''}" id="acc-${cssId(a.id)}">
-      <div><div class="aq-head">${A_cb(a)}${A_who(a)}</div>${quotaBlock(a)}</div>
+      <div><div class="aq-head">${A_cb(a)}${A_who(a)}${A_last(a)}</div>${quotaBlock(a,'card-quota')}</div>
       <div class="aq-foot"><span class="aq-foot-l"><span class="aq-clock"></span><span>${a.quotaAt?esc(ago(a.quotaAt))+'同步':'未同步'}</span></span><span class="aq-act">${A_acts(a)}${A_tog(a)}</span></div></article>`;
-const accRow=a=>`<div class="aq-row ${a.disabled&&!a.autoAt?'off':''}" id="acc-${cssId(a.id)}">${A_cb(a)}${A_who(a)}${quotaBlock(a)}<span class="aq-act">${A_acts(a)}${A_tog(a)}</span></div>`;
+const accRow=a=>`<div class="aq-row ${a.disabled&&!a.autoAt?'off':''}" id="acc-${cssId(a.id)}">${A_cb(a)}${A_who(a)}${quotaBlock(a)}${A_last(a)}<span class="aq-act">${A_acts(a)}${A_tog(a)}</span></div>`;
 /* 分页：当前页的号；跳到某个号时翻到它所在的页 */
 const ACC_SIZES=[10,20,50,100];
 function pageList(){
@@ -367,7 +371,7 @@ function accBody(){
   if(!LL.length)return `<section class="card glass">${empty('search','没有符合条件的账号')}</section>`;
   const QS=AF.QUOTA_SORTS;
   if(ui.acc.view==='card')return `<div class="acards-head"><label class="cb-l"><input type="checkbox" class="cb" id="selall" aria-label="全选当前筛选的账号"><span>全选</span></label><span class="sorts">${sortBtns(QS)}</span></div><div class="aq-cards">${L.map(accCard).join('')}</div>${pg}`;
-  return `<section class="aq-list aq-glass"><div class="aq-row th"><input type="checkbox" class="cb" id="selall" aria-label="全选当前筛选的账号"><span class="aq-th-who"></span><span class="sorts aq-sorts">${sortBtns(QS)}</span><span></span></div>
+  return `<section class="aq-list aq-glass"><div class="aq-row th"><input type="checkbox" class="cb" id="selall" aria-label="全选当前筛选的账号"><span class="aq-th-who">账号</span><span class="sorts aq-sorts">${sortBtns(QS)}</span><span class="aq-col">最后使用</span><span class="aq-col">操作</span></div>
     ${L.map(accRow).join('')}</section>${pg}`;
 }
 /* 静默更新：只换内容变了的号；可见的号或顺序变了才整块重画 */
@@ -662,7 +666,8 @@ function tiersBody(){
   if(!T)return `<div class="hstack"><span class="spin"></span><span class="dim">读取模型列表…</span></div>`;
   if(T.err)return `<p class="faint">读不到模型列表</p>`;
   const nm=n=>`<button class="tname ${n.listed?'':'miss'}" data-act="copy:${esc(n.name)}" title="${esc(n.target?n.name+' → '+n.target:n.name)}"><span class="mono">${esc(n.name)}</span>${ic('copy')}</button>`;
-  return `<div class="tbl tiers"><div class="tr th"><span>默认</span><span>low</span><span>medium</span><span>high</span></div>
+  const lv=T.levels||['','low','medium','high'];
+  return `<div class="tbl tiers" style="--tn:${lv.length}"><div class="tr th">${lv.map(l=>`<span>${l||'默认'}</span>`).join('')}</div>
     ${T.families.map(f=>`<div class="tr">${f.names.map(nm).join('')}</div>`).join('')||'<p class="faint">还没有配置档位别名</p>'}</div>
     ${T.untiered.length?`<div class="untier"><h3>${ic('alert')}没配档位的模型</h3><div class="hstack">${T.untiered.map(u=>u.models.map(m=>`<button class="tname" data-act="copy:${esc(m)}"><span class="mono">${esc(m)}</span>${ic('copy')}</button>`).join('')).join('')}</div></div>`:''}`;
 }
@@ -818,6 +823,7 @@ document.addEventListener('click',act(async e=>{
     case 'logout':await api('POST','api/logout');me=null;closeDialog();render();break;
     case 'copy':copy(arg);break;
     case 'toggle':{const x=D.accounts?.find(y=>y.id===arg);if(!x)break;const v=await api('PATCH','api/accounts/'+encodeURIComponent(arg),{disabled:!x.disabled});const prev=D.accounts;putAcc(v);patchAcc(prev);if(dialogOpen()&&$('#f-note')?.dataset.note===arg)accountDetail(arg);break;}
+    case 'refreshone':{if(!arg)break;const r=await api('POST','api/quota/refresh',{ids:[arg]});toast(r.queued?'已加入额度刷新队列':'额度刷新请求已处理');break;}
     case 'detail':accountDetail(arg);break;
     case 'reason':reasonDialog(arg);break;
     case 'rsraw':{const p=$('#rs-p'),r=$('#rs-r');if(!p||!r)break;const show=r.hidden;r.hidden=!show;p.hidden=show;el.textContent=show?'显示解析结果':'显示原始报文';break;}

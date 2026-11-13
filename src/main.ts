@@ -15,6 +15,8 @@ import { QueueStore, setUsageSource, startUsageDrainer } from './usage.ts';
 import * as cpa from './cpa.ts';
 import { startAutoDisable } from './autodisable.ts';
 import * as autosleep from './autosleep.ts';
+import { startAutoExclude } from './autoexclude.ts';
+import { startCatalog } from './catalog.ts';
 
 const errs = validateConfig();
 if (errs.length) {
@@ -104,6 +106,8 @@ server.listen(config.port, config.host, () => {
   startUsageDrainer(usage, config.usagePollMs, config.usageRetentionDays, autosleep.onTraffic);
   startAutoDisable();
   autosleep.startAutoSleep();
+  startAutoExclude();
+  startCatalog();
   cpa.refreshCreds().catch((e) => console.error('[cpa] initial credential list failed:', e.message));
   setInterval(() => { try { pruneSessions(); } catch (e) { console.error('[prune]', e); } }, 3600000).unref();
 });

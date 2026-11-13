@@ -35,7 +35,7 @@ export class JsonFile<T extends object> {
   }
 }
 
-export type Settings = { quotaRefreshMinutes: number; autoDisable: boolean; autoEnable: boolean; autoSleep: boolean };
+export type Settings = { quotaRefreshMinutes: number; autoDisable: boolean; autoEnable: boolean; autoSleep: boolean; autoExclude: boolean };
 /** An account this app turned off because Google answered 403: when, Google's reason, the verify / appeal link. */
 export type AutoMark = { at: number; reason: string; action: Action | null };
 // sessions: sha256(token) -> expires (ms); pwFingerprint: which password they were made with;
@@ -46,7 +46,7 @@ type State = {
   auto?: Record<string, AutoMark>; autoSince?: Record<string, number>; sleep?: Record<string, number>;
 };
 
-const defaults = (): Settings => ({ quotaRefreshMinutes: config.quotaRefreshMinutes, autoDisable: true, autoEnable: true, autoSleep: false });
+const defaults = (): Settings => ({ quotaRefreshMinutes: config.quotaRefreshMinutes, autoDisable: true, autoEnable: true, autoSleep: false, autoExclude: true });
 export const state = new JsonFile<State>('state.json', () => ({ sessions: {}, settings: defaults() }));
 
 export function settings(): Settings {

@@ -79,7 +79,7 @@ test('everything is under BASE_PATH; the API needs a session', async () => {
   assert.equal((await me.req('GET', '/api/overview')).status, 401);
   const page = await me.req('GET', '/');
   assert.equal(page.status, 200);
-  assert.match(String(page.data), /AGY Me/);
+  assert.match(String(page.data), /Antigravity me/);
 });
 
 test('login: wrong password refused and rate limited per IP, right one sets a safe cookie', async () => {

@@ -72,6 +72,7 @@ test('tier table: four names per family, untiered models flagged', () => {
     [{ name: 'claude-opus-5-5-high', alias: 'claude-opus-5-5' }, { name: 'claude-opus-5-5-high', alias: 'claude-opus-5-5-low' }],
     ['claude-opus-5-5-high', 'claude-opus-5-5', 'claude-opus-5-5-low', 'claude-sonnet-4-6', 'gpt-oss-120b-medium'],
   );
+  assert.deepEqual(t.levels, ['', 'low', 'medium', 'high']);
   assert.deepEqual(t.families.map((f) => f.family), ['claude-opus-5-5']);
   assert.deepEqual(t.families[0].names.map((n) => [n.name, n.listed, n.target]), [
     ['claude-opus-5-5', true, 'claude-opus-5-5-high'],
@@ -80,4 +81,50 @@ test('tier table: four names per family, untiered models flagged', () => {
     ['claude-opus-5-5-high', true, null],
   ]);
   assert.deepEqual(t.untiered, [{ family: 'claude-sonnet-4-6', models: ['claude-sonnet-4-6'] }, { family: 'gpt-oss-120b', models: ['gpt-oss-120b-medium'] }]);
+});
+
+test('tier table & catalog: 5-column xhigh support and minimal/xhigh family cloning', async () => {
+  const { build: buildCatalog } = await import('../src/catalog.ts');
+  assert.equal(familyOf('gemini-4-hydrogen-xhigh'), 'gemini-4-hydrogen');
+  const t = tierTable(
+    [
+      { name: 'gemini-4-hydrogen-xhigh', alias: 'gemini-4-hydrogen' },
+      { name: 'claude-opus-5-5-high', alias: 'claude-opus-5-5' },
+    ],
+    ['gemini-4-hydrogen-xhigh', 'gemini-4-hydrogen-high', 'gemini-4-hydrogen-low', 'claude-opus-5-5-high'],
+  );
+  assert.deepEqual(t.levels, ['', 'low', 'medium', 'high', 'xhigh']);
+  const h = t.families.find((f) => f.family === 'gemini-4-hydrogen')!;
+  assert.deepEqual(h.names.map((n) => [n.name, n.listed, n.target]), [
+    ['gemini-4-hydrogen', true, 'gemini-4-hydrogen-xhigh'],
+    ['gemini-4-hydrogen-low', true, null],
+    ['gemini-4-hydrogen-medium', false, null],
+    ['gemini-4-hydrogen-high', true, null],
+    ['gemini-4-hydrogen-xhigh', true, null],
+  ]);
+  const c = t.families.find((f) => f.family === 'claude-opus-5-5')!;
+  assert.equal(c.names.length, 5);
+  assert.deepEqual(c.names[4], { name: 'claude-opus-5-5-xhigh', level: 'xhigh', listed: false, target: null });
+
+  const cat = buildCatalog(
+    {
+      antigravity: [{ id: 'gemini-4-hydrogen-high', name: 'gemini-4-hydrogen-high', display_name: 'H High', max_completion_tokens: 65536 }],
+      openai: [{ id: 'gpt-5' }],
+    },
+    new Map([
+      ['gemini-4-hydrogen-minimal', 'Gemini 4 Hydrogen (Minimal)'],
+      ['gemini-4-hydrogen-xhigh', 'Gemini 4 Hydrogen (XHigh)'],
+      ['gemini-4-hydrogen-high', 'duplicate ignored'],
+      ['chat_20706', 'skipped'],
+    ]),
+  );
+  assert.deepEqual(cat.openai, [{ id: 'gpt-5' }]);
+  assert.deepEqual(cat.antigravity.map((m) => m.id), [
+    'gemini-4-hydrogen-high',
+    'gemini-4-hydrogen-minimal',
+    'gemini-4-hydrogen-xhigh',
+  ]);
+  assert.equal(cat.antigravity[1].max_completion_tokens, 65536);
+  assert.equal(cat.antigravity[2].max_completion_tokens, 65536);
+  assert.equal(cat.antigravity[2].display_name, 'Gemini 4 Hydrogen (XHigh)');
 });

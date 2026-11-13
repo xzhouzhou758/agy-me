@@ -549,7 +549,7 @@ a.btn{text-decoration:none}
 
 /* ============ 设置 ============ */
 .rule .input{width:92px}
-.tiers .tr{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:6px 2px}
+.tiers .tr{grid-template-columns:repeat(var(--tn,4),minmax(0,1fr));gap:8px;padding:6px 2px}
 .tname{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%;border:1px solid var(--hair);background:var(--fill);border-radius:8px;padding:3px 8px;color:var(--ink)}
 .tname .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px}
 .tname svg.i{width:12px;height:12px;color:var(--faint);flex:none}
@@ -948,3 +948,42 @@ button.aq-st{cursor:pointer}
 .hcard-l .num small{font-size:12.5px;color:var(--dim);font-weight:500;margin-left:4px}
 .hcard-r{min-width:0;padding-left:28px;border-left:1px solid var(--hair);align-self:stretch;display:flex;align-items:center}
 @media (max-width:760px){.hcard{grid-template-columns:minmax(0,1fr);gap:16px}.hcard-r{padding-left:0;border-left:0;padding-top:14px;border-top:1px solid var(--hair)}}
+
+/* Mobile account search, view switch and filters */
+@media (max-width:760px){
+  .atool{gap:8px}
+  .atool .srch{flex:1 1 0;min-width:0}
+  .atool .srch .input.sm{box-sizing:border-box;width:100%;min-width:0}
+  .atool .fchips{order:3;flex:1 0 100%}
+  .atool .fchip{white-space:nowrap}
+}
+
+/* 凭证列表与紧凑卡片 */
+.aq-cards{grid-template-columns:repeat(auto-fill,minmax(min(100%,346px),1fr))}
+.aq-card{padding:10px;container-type:inline-size}
+.aq-card .aq-head .aq-who{min-width:0;flex:1}
+.aq-last,.aq-col,.aq-th-who{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+.aq-last small{display:block;color:var(--faint)}
+.aq-head .aq-last{text-align:right;margin-left:auto}
+.aq-head .aq-last::before{content:'最后使用';display:block;font-size:10px;color:var(--faint)}
+.aq-card .card-quota{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-top:8px}
+.aq-card .aq-q{padding:6px 4px;gap:5px}
+.aq-card .aq-qn,.aq-row .aq-qn{white-space:normal;line-height:1.3}
+.aq-card .aq-windows{display:grid;gap:2px}
+.aq-card .aq-windows .aq-ln{display:grid;grid-template-columns:23px 30px minmax(0,1fr);gap:4px}
+.aq-card .aq-ln.usage{grid-template-columns:23px 1fr}
+.aq-card .aq-foot{flex-wrap:wrap;margin-top:6px;padding-top:4px}
+.aq-card .aq-act{margin-left:auto}
+.aq-row .aq-act{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:3px}
+@container(max-width:325px){.aq-card .card-quota{grid-template-columns:1fr}}
+@media(min-width:1061px){
+.aq-row{grid-template-columns:16px clamp(145px,14vw,184px) minmax(0,1fr) 78px 124px;gap:10px}
+.aq-row .aq-quota{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.aq-row .aq-q{padding:7px 9px}
+}
+@media(max-width:1060px){
+.aq-row.th .aq-col{display:none}
+.aq-row:not(.th) .aq-last{grid-column:2;grid-row:2}
+.aq-row:not(.th) .aq-act{grid-column:3;grid-row:1/3;max-width:124px}
+.aq-row:not(.th) .aq-quota,.aq-row:not(.th) .aq-ban,.aq-row:not(.th) .aq-none{grid-row:3;grid-column:1/-1}
+}

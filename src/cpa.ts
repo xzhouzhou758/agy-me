@@ -165,6 +165,17 @@ export async function downloadCredential(id: string): Promise<any> {
   return expectOK(await mgmt('GET', '/credentials/download', { query: { name: id } }), 'download');
 }
 
+/** The credential's own excluded_models (only its file has it; the list endpoint doesn't show it). */
+export async function excludedModels(id: string): Promise<string[]> {
+  const d = await downloadCredential(id);
+  return Array.isArray(d?.excluded_models) ? d.excluded_models.filter((s: unknown): s is string => typeof s === 'string') : [];
+}
+
+/** Writes excluded_models into the credential's file (null = none of its own); CPA re-registers just that credential. */
+export async function setExcludedModels(id: string, models: string[] | null) {
+  expectOK(await mgmt('PATCH', '/credentials/fields', { body: { name: id, excluded_models: models } }), 'fields');
+}
+
 export async function credentialModels(id: string): Promise<any[]> {
   const d = expectOK(await mgmt('GET', '/credentials/models', { query: { name: id }, timeoutMs: 8000 }), 'models');
   return Array.isArray(d?.models) ? d.models : [];

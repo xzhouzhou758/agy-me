@@ -3,12 +3,12 @@
 // and the families in CPA's model list that have no alias configured yet.
 import * as cpa from './cpa.ts';
 
-export const TIERS = ['', 'low', 'medium', 'high'] as const;
+export const TIERS = ['', 'low', 'medium', 'high', 'xhigh'] as const;
 export type TierName = { name: string; level: typeof TIERS[number]; listed: boolean; target: string | null };
 export type TierFamily = { family: string; names: TierName[] };
-export type TierTable = { families: TierFamily[]; untiered: { family: string; models: string[] }[] };
+export type TierTable = { levels: string[]; families: TierFamily[]; untiered: { family: string; models: string[] }[] };
 
-export const familyOf = (id: string) => id.replace(/-(low|medium|high)$/i, '');
+export const familyOf = (id: string) => id.replace(/-(low|medium|high|xhigh)$/i, '');
 
 /** aliases: [{name (upstream), alias (client name)}]; models: ids CPA lists for the accounts. */
 export function tierTable(aliases: { name: string; alias: string }[], models: string[]): TierTable {
@@ -17,9 +17,11 @@ export function tierTable(aliases: { name: string; alias: string }[], models: st
   for (const a of aliases) if (a.alias) target.set(a.alias, a.name);
   const aliased = new Set<string>();
   for (const a of aliases) { aliased.add(familyOf(a.alias)); aliased.add(familyOf(a.name)); }
+  // xhigh only shows as a column when some family really has it
+  const levels = TIERS.filter((l) => l !== 'xhigh' || [...aliased].some((f) => f && (listed.has(`${f}-xhigh`) || target.has(`${f}-xhigh`))));
   const families: TierFamily[] = [...aliased].filter(Boolean).sort().map((family) => ({
     family,
-    names: TIERS.map((level) => {
+    names: levels.map((level) => {
       const name = level ? `${family}-${level}` : family;
       return { name, level, listed: listed.has(name) || target.has(name), target: target.get(name) || null };
     }),
@@ -30,7 +32,7 @@ export function tierTable(aliases: { name: string; alias: string }[], models: st
     if (aliased.has(f)) continue;
     rest.set(f, [...(rest.get(f) || []), m]);
   }
-  return { families, untiered: [...rest].map(([family, ms]) => ({ family, models: ms })) };
+  return { levels: [...levels], families, untiered: [...rest].map(([family, ms]) => ({ family, models: ms })) };
 }
 
 let modelCache: { at: number; ids: string[] } | null = null;
