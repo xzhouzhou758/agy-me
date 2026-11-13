@@ -948,3 +948,12 @@ button.aq-st{cursor:pointer}
 .hcard-l .num small{font-size:12.5px;color:var(--dim);font-weight:500;margin-left:4px}
 .hcard-r{min-width:0;padding-left:28px;border-left:1px solid var(--hair);align-self:stretch;display:flex;align-items:center}
 @media (max-width:760px){.hcard{grid-template-columns:minmax(0,1fr);gap:16px}.hcard-r{padding-left:0;border-left:0;padding-top:14px;border-top:1px solid var(--hair)}}
+
+/* Mobile account search, view switch and filters */
+@media (max-width:760px){
+  .atool{gap:8px}
+  .atool .srch{flex:1 1 0;min-width:0}
+  .atool .srch .input.sm{box-sizing:border-box;width:100%;min-width:0}
+  .atool .fchips{order:3;flex:1 0 100%}
+  .atool .fchip{white-space:nowrap}
+}
