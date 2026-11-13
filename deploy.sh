@@ -61,12 +61,46 @@ show_url() {
   [ "$bind" = "127.0.0.1" ] || warn "现在是 http 明文访问，登录密码会在网上裸奔，建议前面套 nginx / Caddy 上 https。"
 }
 
+update_managed_models() {
+  # Compose's effective service list also accounts for override files.
+  local services helper seed
+  services="$(docker compose config --services)"
+  if ! grep -qx cpa <<<"$services"; then
+    say "此安装连接外部 CPA，只更新面板；模型映射由外部 CPA 管理。"
+    return
+  fi
+  [ -f cpa/config.yaml ] || die "找不到本地 CPA 配置 cpa/config.yaml"
+  mkdir -p cpa/catalog
+  if [ ! -s cpa/catalog/models.json ]; then
+    seed="$(mktemp cpa/catalog/.models.XXXXXX)"
+    if ! curl -fsSL https://models.router-for.me/models.json -o "$seed"; then
+      curl -fsSL https://raw.githubusercontent.com/router-for-me/models/main/models.json -o "$seed" || die "下载模型目录失败，未修改配置"
+    fi
+    docker run --rm -i --entrypoint node "$IMAGE" -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync(0)); if(!Array.isArray(d.antigravity)||!d.antigravity.length)process.exit(1)' < "$seed" || die "模型目录校验失败"
+    chmod 644 "$seed"; mv "$seed" cpa/catalog/models.json
+  fi
+  chown 1000:1000 cpa/catalog 2>/dev/null || sudo chown 1000:1000 cpa/catalog || die "无法设置模型目录权限"
+  helper="$(mktemp)"
+  curl -fsSL "$RAW/deploy/update-models.rb" -o "$helper" || die "下载模型更新程序失败"
+  if command -v ruby >/dev/null; then
+    ruby "$helper"
+  else
+    docker run --rm -i --network none -v "$PWD:/install" -w /install ruby:3.3-alpine ruby - < "$helper"
+  fi
+  rm -f "$helper"
+  docker compose config -q
+}
+
 # ---------- 已有安装：升级 ----------
 if [ -f "$DIR/docker-compose.yml" ] && [ -f "$DIR/.env" ]; then
   say "发现 $DIR 里已经装过了"
-  if yesno "只升级镜像（保留所有配置和数据）？" y; then
+  if yesno "升级镜像并补齐模型配置（保留密钥和自定义映射）？" y; then
     cd "$DIR"
     docker compose pull
+    update_managed_models
+    if grep -qx cpa <<<"$(docker compose config --services)"; then
+      docker compose up -d --force-recreate cpa
+    fi
     docker compose up -d
     set -a; . ./.env; set +a
     wait_up "${AGY_PORT:-8321}" "${BASE_PATH:-}" || warn "30 秒内没起来，用 docker compose logs agy-me 看看"
@@ -212,6 +246,7 @@ true
 # ---------- 启动 ----------
 say "拉取镜像并启动"
 docker compose pull
+update_managed_models
 docker compose up -d
 wait_up "$PORT" "$BASE_PATH" || warn "30 秒内没起来，用 cd $DIR && docker compose logs 看看"
 show_url "$PORT" "$BASE_PATH" "$BIND"
