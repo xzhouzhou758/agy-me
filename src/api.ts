@@ -125,7 +125,10 @@ route('POST', '/api/quota/refresh', async (req) => {
   const b = await readJSON(req);
   const list = ids(b.ids);
   const c = list.length ? await cpa.creds(5000) : null;
-  return { queued: c ? quota.enqueue(list.filter((id) => isAG(c, id))) : await quota.enqueueAll(), progress: quota.progress() };
+  const valid = c ? list.filter((id) => isAG(c, id)) : [];
+  const queued = c ? quota.enqueue(valid) : await quota.enqueueAll();
+  const probed = await auto.recheck(c ? valid : undefined).catch(() => 0);
+  return { queued, probed, progress: quota.progress() };
 });
 
 // ---------- dashboard ----------
@@ -405,6 +408,11 @@ route('DELETE', '/api/keys/:id', async (_req, _res, p) => ({ keys: await keys.re
 
 // ---------- browser ----------
 route('GET', '/api/browser', () => browser.view());
-route('POST', '/api/browser/start', async (req) => browser.start(str((await readJSON(req)).url, 2048) || undefined));
+route('POST', '/api/browser/start', async (req) => {
+  const b = await readJSON(req);
+  const urls = Array.isArray(b.urls) ? b.urls.slice(0, 5).map((u: unknown) => str(u, 2048)).filter(Boolean) : undefined;
+  const url = str(b.url, 2048) || undefined;
+  return browser.start({ url, urls, fresh: b.fresh === true });
+});
 route('POST', '/api/browser/stop', () => browser.stop());
 

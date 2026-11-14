@@ -82,7 +82,7 @@ async function req(method,path,body,raw){
   else if(body!==undefined){opt.body=JSON.stringify(body);opt.headers['Content-Type']='application/json';}
   const r=await fetch(path,opt);
   if(r.status===401&&path!=='api/me'&&path!=='api/login'){
-    const was=!!me;me=null;flow=null;closeDialog();if(was)render();
+    const was=!!me;me=null;flow=null;brPop=null;closeBrPop();closeDialog();if(was)render();
     const e=new Error('unauthorized');e.code='unauthorized';e.status=401;e.silent=true;throw e;
   }
   if(!r.ok){let d=null;try{d=await r.json();}catch(e){}const e=new Error(d?.error||('http_'+r.status));e.code=d?.error||('http_'+r.status);e.detail=d?.message;e.status=r.status;throw e;}
@@ -127,10 +127,11 @@ function quotaSlots(a,compact){
   return [[compact?'Gemini 4 Hydrogen':'Gemini 3.8 / Gemini 4 Hydrogen','gemini',q.gemini||none,u.gemini],[`Claude ${claudeVer(q)} / GPT`,'claude',q.claude||none,u.claude],
     ['Gemini 4 Argon','gemini',on(q.argon,q.argonState),u.argon],['Gemini 4 Carbon','gemini',on(q.carbon,q.carbonState),u.carbon]];
 }
+const apBtns=(id,ap)=>{const lab=ap?.kind==='appeal'?'申诉':'验证';return `<span class="aob-btns"><button type="button" data-act="reason:${esc(id)}">查看原因</button>${ap?`<a href="${esc(ap.url)}" target="_blank" rel="noopener noreferrer">${lab}</a>${me?.browser?`<button type="button" class="aob-br" data-act="bropen:${esc(id)}" title="内置浏览器打开${lab}" aria-label="内置浏览器打开${lab}">${ic('window')}</button>`:''}`:''}</span>`;};
 function quotaBlock(a,cls=''){
   const q=a.quota;
   if(q?.forbidden||a.autoAt){const ap=a.action,why=a.autoAt?shortWhy(a.reason||q?.forbidden):(/TOS_VIOLATION|violation of Terms/i.test(q.forbidden)?'违反服务条款':'上游拒绝访问');
-    return `<div class="aq-ban"><div class="aq-ban-l"><span class="aq-ban-ico"><span class="aq-lock"></span></span><div class="aq-ban-txt"><span>${is401(a)?'登录失效 (HTTP 401)':'账号访问受限 (HTTP 403)'}</span><span class="aq-ban-sub">${esc(why)}${a.autoAt?' · 已自动停用':''}</span></div></div><span class="aob-btns"><button type="button" data-act="reason:${esc(a.id)}">查看原因</button>${ap?`<a href="${esc(ap.url)}" target="_blank" rel="noopener noreferrer">${ap.kind==='appeal'?'申诉':'验证'}</a>`:''}</span></div>`;}
+    return `<div class="aq-ban"><div class="aq-ban-l"><span class="aq-ban-ico"><span class="aq-lock"></span></span><div class="aq-ban-txt"><span>${is401(a)?'登录失效 (HTTP 401)':'账号访问受限 (HTTP 403)'}</span><span class="aq-ban-sub">${esc(why)}${a.autoAt?' · 已自动停用':''}</span></div></div>${apBtns(a.id,ap)}</div>`;}
   if(!q)return `<div class="aq-none">${a.quotaErr?'额度读取失败':'暂无模型额度遥测数据'}</div>`;
   return `<div class="aq-quota ${cls}">${quotaSlots(a,cls==='card-quota').map(x=>gauge(...x)).join('')}</div>`;
 }
@@ -214,7 +215,7 @@ function render(){
   afterRender();
 }
 function afterRender(){
-  if(page==='accounts'){syncHeadBox();if(ui.acc.focus){const el=document.getElementById('acc-'+cssId(ui.acc.focus));ui.acc.focus=null;if(el){el.scrollIntoView({block:'center'});el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),2200);}}}
+  if(page==='accounts'){syncHeadBox();watchQuota(false);if(ui.acc.focus){const el=document.getElementById('acc-'+cssId(ui.acc.focus));ui.acc.focus=null;if(el){el.scrollIntoView({block:'center'});el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),2200);}}}
 }
 function loginView(){
   return `<div class="login">
@@ -270,7 +271,7 @@ function healthCard(){
 function banBanner(){
   const B=D.ov.bans;if(!B.length)return '';
   return `<section class="ban">${ic('alert')}<div class="ban-b"><b>${B.length} 个号被 Google 拒绝访问</b>
-    ${B.map(b=>`<div class="ban-r"><span class="mono">${esc(b.email)}</span><small>${esc(b.reason)}</small>${b.action?`<a class="btn sm ghost" href="${esc(b.action.url)}" target="_blank" rel="noopener noreferrer">${ic('ext')}${b.action.kind==='appeal'?'申诉':'验证'}</a>`:''}<button class="btn sm danger" data-act="banoff:${esc(b.id)}">${ic('power')}停用</button></div>`).join('')}</div>
+    ${B.map(b=>`<div class="ban-r"><span class="mono">${esc(b.email)}</span><small>${esc(b.reason)}</small>${b.action?`<a class="btn sm ghost" href="${esc(b.action.url)}" target="_blank" rel="noopener noreferrer">${ic('ext')}${b.action.kind==='appeal'?'申诉':'验证'}</a>${me?.browser?`<button type="button" class="btn sm ghost" data-act="bropen:${esc(b.id)}">${ic('window')}内置浏览器打开</button>`:''}`:''}<button class="btn sm danger" data-act="banoff:${esc(b.id)}">${ic('power')}停用</button></div>`).join('')}</div>
     ${B.length>1?`<button class="btn sm danger ban-all" data-act="banall">全部停用</button>`:''}</section>`;
 }
 const shortWhy=r=>{r=String(r||'');return /Terms of Service|TOS_VIOLATION/i.test(r)?'违反服务条款':/verif/i.test(r)?'需要验证账号':/disabled/i.test(r)?'服务被停用':/\b401\b|登录失效|授权已失效|invalid_grant/i.test(r)?'登录失效':(r.replace(/^自动停用\s*·\s*/,'').slice(0,24)||'403');};
@@ -281,7 +282,7 @@ function autoBanner(){
   const g={};A.forEach(b=>{const k=shortWhy(b.reason);g[k]=(g[k]||0)+1;});
   const card=b=>{const ap=b.action;
     return `<div class="aq-ban aob-r"><div class="aq-ban-l"><span class="aq-ban-ico"><span class="aq-lock"></span></span><div class="aq-ban-txt"><span class="aob-m" title="${esc(b.email)}">${esc(b.email)}</span><span class="aq-ban-sub" title="${esc(new Date(b.at).toLocaleString())}">${esc(shortWhy(b.reason))} · ${esc(ago(b.at))}</span></div></div>
-      <span class="aob-btns"><button type="button" data-act="reason:${esc(b.id)}">查看原因</button>${ap?`<a href="${esc(ap.url)}" target="_blank" rel="noopener noreferrer">${ap.kind==='appeal'?'申诉':'验证'}</a>`:''}</span></div>`;};
+      ${apBtns(b.id,ap)}</div>`;};
   return `<details class="aob"${aobOpen()?' open':''}><summary>${ic('power')}<b>自动停用 ${A.length} 个号</b>${Object.entries(g).map(([k,n])=>`<span class="aob-t">${esc(k)} ${n}</span>`).join('')}<i class="aob-c"></i></summary>
     <div class="aob-l">${A.map(card).join('')}</div></details>`;
 }
@@ -314,8 +315,24 @@ function pageDash(){
 
 /* ============ 账号 ============ */
 const visible=()=>AF.sort(AF.filter(D.accounts||[],ui.acc),ui.acc.sort);
+const qRefBtn=()=>{const p=D.progress,run=!!p?.running;return `<button class="btn${run?' busy':''}" id="qrefbtn" data-act="refreshall" ${run||!(D.accounts||[]).length?'disabled':''}>${ic('refresh')}<span>${run&&p.total?`刷新中 ${p.done}/${p.total}`:'全部刷新'}</span></button>`;};
+let qTimer=null,qNotify=false;
+function syncQBtn(){const b=$('#qrefbtn');if(b)b.outerHTML=qRefBtn();}
+function watchQuota(notifyDone=false){
+  if(notifyDone)qNotify=true;
+  if(qTimer||!D.progress?.running)return;
+  qTimer=setInterval(async()=>{
+    if(!me||page!=='accounts'||document.visibilityState!=='visible'){clearInterval(qTimer);qTimer=null;qNotify=false;return;}
+    let r;try{r=await api('GET','api/accounts');}catch(e){return;}
+    if(page!=='accounts')return;
+    const prev=D.accounts;D.accounts=r.accounts;D.progress=r.progress;
+    if(!dialogOpen()){syncSel(false);patchAcc(prev);}
+    syncQBtn();
+    if(!r.progress?.running){const n=qNotify;clearInterval(qTimer);qTimer=null;qNotify=false;if(n)toast('额度刷新完成');}
+  },2000);
+}
 function pageAccounts(){
-  const acts=`<button class="btn" data-act="add">${ic('plus')}添加</button><button class="btn" data-act="import">${ic('upload')}导入</button><button class="btn" data-act="exportall">${ic('download')}导出</button>`;
+  const acts=qRefBtn()+`<button class="btn" data-act="add">${ic('plus')}添加</button><button class="btn" data-act="import">${ic('upload')}导入</button><button class="btn" data-act="exportall">${ic('download')}导出</button>`;
   return head('我的凭证',acts)+`<div class="atool">
     <label class="srch">${ic('search')}<input class="input sm" data-accq value="${esc(ui.acc.q)}" placeholder="搜索邮箱" aria-label="搜索邮箱"></label>
     <div id="acc-chips" class="fchips">${accChips()}</div>
@@ -416,7 +433,7 @@ function errMsg(raw){
   try{const i=raw.indexOf('{');if(i<0)return '';const p=JSON.parse(raw.slice(i));const e=typeof p.error==='string'?JSON.parse(p.error).error:p.error||p;return String(e?.message||'');}catch(e){return '';}
 }
 function reasonDialog(id){
-  const a=D.accounts?.find(x=>x.id===id)||D.ov?.autoOff?.find(x=>x.id===id);if(!a)return;
+  const a=D.accounts?.find(x=>x.id===id)||D.ov?.autoOff?.find(x=>x.id===id)||D.ov?.bans?.find(x=>x.id===id);if(!a)return;
   const fb=a.quota?.forbidden||'',raw=fb||a.quotaErr||'';
   const parsed=errMsg(raw)||a.reason||raw||'上游未提供具体原因',both=!!raw&&raw!==parsed;
   const tags=[];
@@ -432,7 +449,7 @@ function reasonDialog(id){
     <section><h3>错误状态</h3><div class="rs-tags">${tags.length?tags.map(([c,t])=>`<span class="chip ${c}"><span class="dot"></span>${esc(t)}</span>`).join(''):esc(a.reason||'账号异常')}</div></section>
     <section><div class="rs-hd"><h3>原因</h3>${both?'<button type="button" class="link" data-act="rsraw">显示原始报文</button>':''}</div>
       <pre class="rs-body" id="rs-p">${esc(parsed)}</pre>${both?`<pre class="rs-body" id="rs-r" hidden>${esc(raw)}</pre>`:''}
-      <div class="rs-acts">${url?`<a class="btn sm primary" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${ic('ext')}前往${lab}</a><button type="button" class="btn sm" data-act="copy:${esc(url)}">${ic('copy')}复制${lab}链接</button>`:`<button type="button" class="btn sm" disabled title="上游报文未提供可用链接">前往${lab}</button><button type="button" class="btn sm" disabled title="上游报文未提供可用链接">复制${lab}链接</button>`}</div></section>
+      <div class="rs-acts">${url?`<a class="btn sm primary" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${ic('ext')}前往${lab}</a><button type="button" class="btn sm" data-act="copy:${esc(url)}">${ic('copy')}复制${lab}链接</button>${me?.browser?`<button type="button" class="btn sm" data-act="bropen:${esc(a.id)}">${ic('window')}内置浏览器打开</button>`:''}`:`<button type="button" class="btn sm" disabled title="上游报文未提供可用链接">前往${lab}</button><button type="button" class="btn sm" disabled title="上游报文未提供可用链接">复制${lab}链接</button>`}</div></section>
     <details><summary>账号自助排查指南</summary><p>先核对上方账号和原因。若上游要求验证，请使用该账号完成验证；若返回 TOS_VIOLATION，请通过上游提供的申诉入口提交申诉。处理后在账号页刷新额度。</p></details>
     ${at?`<section class="rs-meta"><span class="aq-clock"></span>${at[0]}：${esc(new Date(at[1]).toLocaleString())}</section>`:''}
   </div>`,`<button class="btn primary" data-act="close">关闭</button>`);
@@ -644,7 +661,54 @@ function pageUsage(){
 }
 
 /* ============ 浏览器 ============ */
-let brTimer=null;
+let brTimer=null,brPop=null,brPopTimer=null;
+const brPopOpen=()=>!!$('#brpop .brp-dlg');
+const loginURLFor=email=>email&&email.includes('@')?`https://accounts.google.com/ServiceLogin?Email=${encodeURIComponent(email)}`:'https://accounts.google.com/';
+function ensureBrLayer(){let el=$('#brpop');if(!el){el=document.createElement('div');el.id='brpop';document.body.append(el);}return el;}
+function closeBrPop(){
+  if(brPopTimer){clearInterval(brPopTimer);brPopTimer=null;}
+  const el=$('#brpop');if(el)el.innerHTML='';
+  if(dirty&&!$('#layer .dialog')){dirty=false;if(me)render();}
+}
+function brPopBar(st,who,run){
+  return `<div class="brp-l">${st}${who}</div>
+    <div class="hstack"><button type="button" class="btn sm" data-act="brpopreset" title="清空登录态并重新打开页面">${ic('refresh')}重置</button>${run?`<a class="btn sm" href="browser/" target="_blank" rel="noopener">${ic('ext')}新窗口</a>`:''}<button type="button" class="btn sm danger" data-act="brpopstop">${ic('power')}销毁</button><button type="button" class="btn icon ghost" data-act="brpopclose" aria-label="收起窗口" title="收起窗口">${ic('x')}</button></div>`;
+}
+function drawBrPop(){
+  const el=$('#brpop');if(!el||!brPop)return;
+  const b=D.br||{state:'starting'},run=b.state==='running';
+  const who=brPop.email?`<span class="mono brp-mail" title="${esc(brPop.email)}">${esc(brPop.email)}</span><button type="button" class="btn sm ghost" data-act="copy:${esc(brPop.email)}">${ic('copy')}复制邮箱</button>`:'<b>内置 Chrome</b>';
+  const st=run?`<span class="chip good"><span class="dot"></span>运行中</span>`:b.state==='starting'?`<span class="chip accent"><span class="spin sm"></span>启动中…</span>`:`<span class="chip bad"><span class="dot"></span>未运行</span>`;
+  if(run&&el.querySelector('.brp-frame')){const bar=el.querySelector('.brp-bar');if(bar)bar.innerHTML=brPopBar(st,who,true);return;}
+  const body=run?`<iframe class="brp-frame" src="browser/" title="内置浏览器" allow="clipboard-read; clipboard-write; fullscreen"></iframe>`
+    :b.state==='starting'?`<div class="brp-wait"><span class="spin"></span><b>正在启动内置 Chrome…</b></div>`
+    :`<div class="brp-wait">${ic('window')}<b>${esc(b.error||'浏览器未运行')}</b><button type="button" class="btn primary" data-act="brpopreset">${ic('play')}重新启动</button></div>`;
+  el.innerHTML=`<div class="shade brp-shade"><section class="brp-dlg glass" role="dialog" aria-modal="true" aria-label="内置浏览器">
+    <div class="brp-bar">${brPopBar(st,who,run)}</div><div class="brp-body">${body}</div></section></div>`;
+}
+function watchBrPop(){
+  if(brPopTimer){clearInterval(brPopTimer);brPopTimer=null;}
+  if(!brPopOpen()||D.br?.state!=='starting')return;
+  brPopTimer=setInterval(async()=>{
+    if(!brPopOpen()){clearInterval(brPopTimer);brPopTimer=null;return;}
+    try{D.br=await api('GET','api/browser');}catch(e){return;}
+    if(D.br.state!=='starting'){clearInterval(brPopTimer);brPopTimer=null;drawBrPop();if(page==='browser')renderSoon();}
+  },1200);
+}
+async function openBrPop(key,email,urls){
+  ensureBrLayer();
+  let cur=D.br;
+  if(!cur)try{cur=D.br=await api('GET','api/browser');}catch(e){cur={state:'idle'};}
+  const same=brPop?.key===key&&cur.state==='running';
+  brPop={key,email,urls};
+  if(!same){
+    D.br={state:'starting',enabled:true,error:''};
+    drawBrPop();
+    D.br=await api('POST','api/browser/start',{urls,fresh:true});
+  }
+  drawBrPop();
+  watchBrPop();
+}
 function brWatch(){
   const want=page==='browser'&&D.br?.state==='starting';
   if(want&&!brTimer)brTimer=setInterval(async()=>{try{D.br=await api('GET','api/browser');}catch(e){return;}if(D.br.state!=='starting'){clearInterval(brTimer);brTimer=null;if(page==='browser')renderSoon();}},2000);
@@ -785,10 +849,10 @@ function openDialog(title,sub,body,foot,wide=false){
 }
 function closeDialog(){
   $('#layer').innerHTML='';if(!flowPending())flow=null;imp=null;pendingDelete=null;pendingKey=null;
-  if(dirty){dirty=false;if(me)render();}
+  if(dirty&&!brPopOpen()){dirty=false;if(me)render();}
   if(lastFocus&&document.contains(lastFocus))lastFocus.focus();lastFocus=null;
 }
-const dialogOpen=()=>!!$('#layer .dialog');
+const dialogOpen=()=>!!$('#layer .dialog')||brPopOpen();
 function toast(text,err=false){
   const t=document.createElement('div');t.className='toast'+(err?' err':'');t.innerHTML=ic(err?'alert':'check')+esc(text);
   $('#toasts').append(t);setTimeout(()=>{t.style.transition='opacity .3s';t.style.opacity='0';setTimeout(()=>t.remove(),300);},err?6000:2600);
@@ -820,10 +884,11 @@ document.addEventListener('click',act(async e=>{
     case 'reload':await reload();break;
     case 'close':closeDialog();break;
     case 'theme':lsSet('agy-theme',isDark()?'light':'dark');applyTheme();break;
-    case 'logout':await api('POST','api/logout');me=null;closeDialog();render();break;
+    case 'logout':await api('POST','api/logout');me=null;brPop=null;closeBrPop();closeDialog();render();break;
     case 'copy':copy(arg);break;
     case 'toggle':{const x=D.accounts?.find(y=>y.id===arg);if(!x)break;const v=await api('PATCH','api/accounts/'+encodeURIComponent(arg),{disabled:!x.disabled});const prev=D.accounts;putAcc(v);patchAcc(prev);if(dialogOpen()&&$('#f-note')?.dataset.note===arg)accountDetail(arg);break;}
-    case 'refreshone':{if(!arg)break;const r=await api('POST','api/quota/refresh',{ids:[arg]});toast(r.queued?'已加入额度刷新队列':'额度刷新请求已处理');break;}
+    case 'refreshall':{const r=await api('POST','api/quota/refresh',{ids:[]});D.progress=r.progress;syncQBtn();if(r.queued||r.progress?.running){toast(r.queued?`开始刷新 ${r.queued} 个账号`:'正在刷新中');watchQuota(true);}else if(r.probed){toast(`正在检测 ${r.probed} 个异常账号`);setTimeout(()=>{if(page==='accounts')reload();},4000);}else toast('没有需要刷新的启用账号');break;}
+    case 'refreshone':{if(!arg)break;const r=await api('POST','api/quota/refresh',{ids:[arg]});D.progress=r.progress;syncQBtn();toast(r.queued?'正在刷新额度':'已在刷新队列中');watchQuota(false);break;}
     case 'detail':accountDetail(arg);break;
     case 'reason':reasonDialog(arg);break;
     case 'rsraw':{const p=$('#rs-p'),r=$('#rs-r');if(!p||!r)break;const show=r.hidden;r.hidden=!show;p.hidden=show;el.textContent=show?'显示解析结果':'显示原始报文';break;}
@@ -838,7 +903,7 @@ document.addEventListener('click',act(async e=>{
     case 'rtmore':flow={};addDialog();break;
     case 'oauthstart':{flow.busy=true;flow.err=null;addDialog();try{const r=await api('POST','api/accounts/oauth');Object.assign(flow,{url:r.url,state:r.state,busy:false});addDialog();window.open(r.url,'_blank','noopener');pollOAuth();}catch(err){if(err.silent||!flow)break;flow.busy=false;flow.err=errText(err);addDialog();}break;}
     case 'copyurl':copy(flow?.url||'');break;
-    case 'oauthbr':await api('POST','api/browser/start',{url:flow.url});closeDialog();go('browser');break;
+    case 'oauthbr':if(flow?.url)await openBrPop('oauth:'+flow.state,'',[flow.url]);break;
     case 'oauthcb':{const v=$('#f-cb').value.trim();if(!v)break;await api('POST','api/accounts/oauth/callback',{state:flow.state,url:v});toast('已提交，等待 CPA 完成');break;}
     case 'import':imp=null;importDialog();break;
     case 'importmore':imp=null;importDialog();break;
@@ -854,13 +919,16 @@ document.addEventListener('click',act(async e=>{
       const r=await api('POST','api/accounts/batch',{op:arg,ids});toast(`${arg==='enable'?'已启用':'已停用'} ${r.ok} 个${r.failed?`，${r.failed} 个失败`:''}${r.skipped?`，${r.skipped} 个已不在`:''}`,!!(r.failed||r.skipped));await reload();break;}
     case 'delone':confirmDelete([arg]);break;
     case 'dodelete':{const ids=pendingDelete||[];closeDialog();const r=await api('POST','api/accounts/batch',{op:'delete',ids});ui.acc.sel=new Set([...ui.acc.sel].filter(x=>!ids.includes(x)));ui.acc.anchor=null;toast(`已删除 ${r.ok} 个${r.failed?`，${r.failed} 个失败`:''}`,!!r.failed);await reload();break;}
-    case 'bropen':{const x=D.accounts?.find(y=>y.id===arg);if(!x?.action)break;await api('POST','api/browser/start',{url:x.action.url});closeDialog();go('browser');break;}
+    case 'bropen':{const x=D.accounts?.find(y=>y.id===arg)||D.ov?.bans?.find(y=>y.id===arg)||D.ov?.autoOff?.find(y=>y.id===arg);if(!x?.action?.url)break;closeDialog();const mail=x.email||'';await openBrPop('acc:'+x.id,mail,[loginURLFor(mail),x.action.url]);break;}
+    case 'brpopclose':closeBrPop();break;
+    case 'brpopreset':if(brPop){D.br={state:'starting',enabled:true,error:''};drawBrPop();D.br=await api('POST','api/browser/start',{urls:brPop.urls,fresh:true});drawBrPop();watchBrPop();}break;
+    case 'brpopstop':D.br=await api('POST','api/browser/stop');brPop=null;closeBrPop();if(page==='browser')render();if(D.br.state!=='idle')toast('没关掉：'+(D.br.error||''),true);break;
     case 'log':await logDetail(arg);break;
     case 'lpg':ui.logs.page=Math.max(1,+arg);await refreshLogs();break;
     case 'lrefresh':await refreshLogs();break;
     case 'lauto':ui.logs.auto=!ui.logs.auto;el.setAttribute('aria-checked',ui.logs.auto);break;
     case 'brstart':D.br=await api('POST','api/browser/start',{});render();break;
-    case 'brstop':D.br=await api('POST','api/browser/stop');render();if(D.br.state!=='idle')toast('没关掉：'+(D.br.error||''),true);break;
+    case 'brstop':D.br=await api('POST','api/browser/stop');brPop=null;render();if(D.br.state!=='idle')toast('没关掉：'+(D.br.error||''),true);break;
     case 'pwdlg':pwDialog();break;
     case 'pwsave':await savePassword();break;
     case 'kshow':if(ui.keys.shown.has(arg))ui.keys.shown.delete(arg);else keyShow(arg,await keyText(arg));drawKeys();break;
@@ -918,6 +986,7 @@ document.addEventListener('dragover',e=>{const d=e.target.closest?.('#drop');if(
 document.addEventListener('dragleave',e=>{e.target.closest?.('#drop')?.classList.remove('on');});
 document.addEventListener('drop',act(async e=>{const d=e.target.closest?.('#drop');if(!d)return;e.preventDefault();await importFiles([...e.dataTransfer.files]);}));
 document.addEventListener('keydown',e=>{
+  if(brPopOpen())return;
   const dlg=$('#layer .dialog');
   if(e.key==='Escape'&&dlg){closeDialog();return;}
   if(e.key==='Enter'&&e.target.id==='f-cb'){$('[data-act=oauthcb]')?.click();return;}
