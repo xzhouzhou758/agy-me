@@ -203,6 +203,49 @@ export async function sweep(): Promise<void> {
   }
 }
 
+let rechecking = false;
+/** Re-probe auto-disabled accounts when the user clicks Refresh (never touches hand-disabled or sleeping ones). */
+export async function recheck(ids?: string[]): Promise<number> {
+  const c = await cpa.creds(5000);
+  const M = marks(), S = sinceMap();
+  const want = ids?.length ? ids : Object.keys(M);
+  const targets = want.map((id) => c.byId.get(id)).filter((x): x is cpa.Cred => !!x && x.type === 'antigravity' && x.disabled && !!M[x.id]);
+  if (!targets.length) return 0;
+  const force = !!ids?.length;
+  if (!rechecking) {
+    rechecking = true;
+    (async () => {
+      try {
+        for (const cred of targets) {
+          const id = cred.id, mark = M[id];
+          if (!mark) continue;
+          if (!force && Date.now() - (lastProbe.get(id) || 0) < 30000) continue;
+          lastProbe.set(id, Date.now());
+          const p = await probe(cred);
+          if (M[id] !== mark) continue;
+          if (p.ok === true && settings().autoEnable && (await disabledNow(id)) === true) {
+            await cpa.setDisabled(id, false);
+            delete M[id];
+            S[id] = Date.now();
+            seenDisabled.set(id, false);
+            lastProbe.delete(id);
+            quota.enqueue([id]);
+            state.save(0);
+            console.log('[autodisable] re-enabled on refresh', id);
+          } else if (p.ok === false) {
+            mark.reason = p.reason || mark.reason;
+            mark.action = p.action || mark.action;
+            state.save();
+          }
+        }
+      } finally {
+        rechecking = false;
+      }
+    })().catch((e) => console.error('[autodisable] recheck failed:', (e as Error).message));
+  }
+  return targets.length;
+}
+
 export function startAutoDisable() {
   if (config.autoSweepMs <= 0) return;
   const tick = () => sweep().catch((e) => console.error('[autodisable] sweep failed:', (e as Error).message));

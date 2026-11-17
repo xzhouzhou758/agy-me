@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { config, validateConfig } from './config.ts';
+import { config, validateConfig, cpaOn } from './config.ts';
 import { sendError, HttpError } from './util.ts';
 import { handleAPI } from './api.ts';
 import { pruneSessions, checkPasswordChange } from './auth.ts';
@@ -11,12 +11,16 @@ import { flushAll } from './store.ts';
 import { startQuotaRefresher } from './quota.ts';
 import { handleBrowser, handleBrowserUpgrade, startBrowser } from './browser.ts';
 import { handleCpaPanel } from './cpapanel.ts';
+import { handleAgmPanel } from './agmpanel.ts';
+import * as keys from './keys.ts';
 import { QueueStore, setUsageSource, startUsageDrainer } from './usage.ts';
 import * as cpa from './cpa.ts';
 import { startAutoDisable } from './autodisable.ts';
 import * as autosleep from './autosleep.ts';
 import { startAutoExclude } from './autoexclude.ts';
 import { startCatalog } from './catalog.ts';
+import { handleGateway } from './gateway.ts';
+import { startAIStudio2Recheck, closeAIS2DB } from './aistudio2.ts';
 
 const errs = validateConfig();
 if (errs.length) {
@@ -78,9 +82,17 @@ const server = http.createServer(async (req, res) => {
   }
   const p = url.pathname;
   try {
+    if (p === '/ais2' || p.startsWith('/ais2/')) {
+      url.pathname = p.slice('/ais2'.length) || '/';
+      return await handleGateway(req, res, url, 'ais2');
+    }
+    if (p === '/v1' || p.startsWith('/v1/') || p.startsWith('/v1beta/')) {
+      return await handleGateway(req, res, url, 'main');
+    }
     if (p.startsWith('/api/')) return await handleAPI(req, res, url);
     if (p === '/browser' || p.startsWith('/browser/')) return await handleBrowser(req, res, url);
     if (p === '/cpa' || p.startsWith('/cpa/')) return await handleCpaPanel(req, res, url);
+    if (p === '/agm' || p.startsWith('/agm/')) return await handleAgmPanel(req, res, url);
     if (p === '/healthz') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       return res.end('ok');
@@ -96,25 +108,29 @@ const server = http.createServer(async (req, res) => {
 });
 server.on('upgrade', handleBrowserUpgrade);
 server.headersTimeout = 60000;
-server.requestTimeout = 120000;
+server.requestTimeout = 0;
 server.keepAliveTimeout = 65000;
 
 server.listen(config.port, config.host, () => {
   console.log(`[agy-me] listening on ${config.host}:${config.port}${config.basePath || ''}`);
-  startQuotaRefresher();
   startBrowser();
-  startUsageDrainer(usage, config.usagePollMs, config.usageRetentionDays, autosleep.onTraffic);
-  startAutoDisable();
-  autosleep.startAutoSleep();
-  startAutoExclude();
-  startCatalog();
-  cpa.refreshCreds().catch((e) => console.error('[cpa] initial credential list failed:', e.message));
+  if (cpaOn()) {
+    startQuotaRefresher();
+    startUsageDrainer(usage, config.usagePollMs, config.usageRetentionDays, autosleep.onTraffic);
+    startAutoDisable();
+    autosleep.startAutoSleep();
+    startAutoExclude();
+    startCatalog();
+    cpa.refreshCreds().catch((e) => console.error('[cpa] initial credential list failed:', e.message));
+  }
+  keys.rawKeysSnapshot().catch(() => {});
+  startAIStudio2Recheck();
   setInterval(() => { try { pruneSessions(); } catch (e) { console.error('[prune]', e); } }, 3600000).unref();
 });
 
 for (const sig of ['SIGTERM', 'SIGINT']) {
   process.on(sig, () => {
-    try { flushAll(); } catch (e) { console.error('[store] flush on exit failed:', e); }
+    try { flushAll(); closeAIS2DB(); } catch (e) { console.error('[store] flush on exit failed:', e); }
     server.close();
     setTimeout(() => process.exit(0), 2000).unref();
   });

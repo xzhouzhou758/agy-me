@@ -1,9 +1,9 @@
 {
   "name": "agy-me",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Single-user web panel for a self-use CLIProxyAPI: accounts, quota, request log, usage, remote browser",
+  "description": "Single-user multi-backend gateway & panel for CLIProxyAPI, Antigravity-Manager, and AI Studio",
   "engines": {
     "node": ">=24"
   },

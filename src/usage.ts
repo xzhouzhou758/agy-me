@@ -22,9 +22,10 @@ export type Req = {
   stream: boolean;
   in: number; out: number; cache: number; think: number; total: number;
   error: string;       // short failure summary
+  backend?: string;
 };
 export type ReqDetail = Req & { path: string; requestId: string; effort: string; userAgent: string; session: string; failBody: string };
-export type LogQuery = { q?: string; account?: string; model?: string; status?: 'ok' | 'err' | string; from?: number; to?: number; page?: number; size?: number };
+export type LogQuery = { q?: string; account?: string; model?: string; status?: 'ok' | 'err' | string; backend?: string; from?: number; to?: number; page?: number; size?: number };
 export type LogPage = { rows: Req[]; total: number; ok: number; err: number; page: number; size: number };
 export type UsageRow = { name: string; req: number; ok: number; in: number; out: number; cache: number; think: number; tok: number; ttft: number | null };
 export type Usage = {
@@ -36,13 +37,22 @@ export type Usage = {
   trend: { t: number; req: number; by: Record<string, number> }[];
 };
 
+export type DirectEvent = {
+  backend?: string;
+  ts: number; requestId: string; authFile: string; account: string;
+  model: string; upstream: string; failed: boolean; status: number;
+  summary: string; body: string; ttft: number | null; latency: number | null; stream: boolean;
+  in: number; out: number; cache: number; think: number; total: number;
+  effort: string; path: string; ua: string; session: string;
+};
+
 export interface UsageSource {
   readonly kind: string;
   available(): boolean;
   recent(limit: number): Req[];
   logs(q: LogQuery): LogPage;
   log(id: number): ReqDetail | null;
-  facets(): { accounts: string[]; models: string[] };
+  facets(): { accounts: string[]; models: string[]; backends?: string[] };
   usage(range: string, tzOffsetMin: number, now?: number): Usage;
   /** auth file -> last request time (ms) */
   lastUsed(): Map<string, number>;
@@ -50,6 +60,10 @@ export interface UsageSource {
   bans(sinceMs: number): Map<string, Ban>;
   /** auth file -> every request since sinceMs: model actually used, time, total tokens */
   tokenEvents(sinceMs: number): Map<string, TokEvent[]>;
+  /** Record one direct gateway request (e.g. AI Studio 2). */
+  recordDirect(ev: DirectEvent): void;
+  /** Per-model request & token totals for the given AI Studio 2 account IDs since sinceMs. */
+  ais2QuotaUsage(sinceMs: number, accountIds: string[]): { model: string; req: number; tok: number }[];
 }
 export type TokEvent = { model: string; ts: number; tok: number };
 
@@ -66,7 +80,8 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS events (
   ttft_ms INTEGER, latency_ms INTEGER, stream INTEGER NOT NULL DEFAULT 0,
   input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, cached_tokens INTEGER NOT NULL DEFAULT 0,
   reasoning_tokens INTEGER NOT NULL DEFAULT 0, total_tokens INTEGER NOT NULL DEFAULT 0,
-  effort TEXT NOT NULL DEFAULT '', path TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '', session TEXT NOT NULL DEFAULT ''
+  effort TEXT NOT NULL DEFAULT '', path TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '', session TEXT NOT NULL DEFAULT '',
+  backend TEXT NOT NULL DEFAULT 'cpa'
 );
 CREATE INDEX IF NOT EXISTS events_ts ON events(timestamp_ms);
 CREATE INDEX IF NOT EXISTS events_auth_ts ON events(auth_file, timestamp_ms);`;
@@ -74,7 +89,7 @@ CREATE INDEX IF NOT EXISTS events_auth_ts ON events(auth_file, timestamp_ms);`;
 const MODEL = 'model';
 const ACCOUNT = 'account';
 const COLS = `id, timestamp_ms, account, auth_file, model AS m, upstream AS up, failed, status, ttft_ms, latency_ms, stream,
-  input_tokens, output_tokens, cached_tokens, reasoning_tokens, total_tokens, fail_summary`;
+  input_tokens, output_tokens, cached_tokens, reasoning_tokens, total_tokens, fail_summary, backend`;
 
 function short(s: string | null | undefined): string {
   const t = String(s || '');
@@ -100,6 +115,7 @@ function mapReq(r: any): Req {
     in: Number(r.input_tokens) || 0, out: Number(r.output_tokens) || 0, cache: Number(r.cached_tokens) || 0,
     think: Number(r.reasoning_tokens) || 0, total: Number(r.total_tokens) || 0,
     error: failed ? r.fail_summary || 'HTTP ' + status : '',
+    backend: String(r.backend || 'cpa'),
   };
 }
 
@@ -140,6 +156,12 @@ export class QueueStore implements UsageSource {
       mkdirSync(dirname(path), { recursive: true });
       const d = new DatabaseSync(path);
       d.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 3000; PRAGMA synchronous = NORMAL;' + SCHEMA);
+      const cols = d.prepare('PRAGMA table_info(events)').all() as any[];
+      if (!cols.some((c) => c.name === 'backend')) {
+        d.exec("ALTER TABLE events ADD COLUMN backend TEXT NOT NULL DEFAULT 'cpa'");
+        d.exec("UPDATE events SET backend = 'ais2' WHERE auth_file LIKE 'ais2_%' AND backend = 'cpa'");
+      }
+      d.exec('CREATE INDEX IF NOT EXISTS events_backend_ts ON events(backend, timestamp_ms)');
       this.db = d;
     } catch (e) {
       console.error('[usage] cannot open', path + ':', (e as Error).message);
@@ -197,6 +219,7 @@ export class QueueStore implements UsageSource {
     if (f.to) { w.push('timestamp_ms < ?'); p.push(f.to); }
     if (f.account) { w.push(`(auth_file = ? OR ${ACCOUNT} = ?)`); p.push(f.account, f.account); }
     if (f.model) { w.push(`${MODEL} = ?`); p.push(f.model); }
+    if (f.backend) { w.push('backend = ?'); p.push(f.backend); }
     if (f.status === 'ok') w.push('failed = 0');
     else if (f.status === 'err') w.push('failed = 1');
     else if (f.status && /^\d{3}$/.test(f.status)) { w.push('status = ?'); p.push(Number(f.status)); }
@@ -235,8 +258,9 @@ export class QueueStore implements UsageSource {
       return {
         accounts: col(`SELECT DISTINCT ${ACCOUNT} AS k FROM events WHERE timestamp_ms >= ? ORDER BY k`),
         models: col(`SELECT DISTINCT ${MODEL} AS k FROM events WHERE timestamp_ms >= ? ORDER BY k`),
+        backends: col(`SELECT DISTINCT backend AS k FROM events WHERE timestamp_ms >= ? ORDER BY k`),
       };
-    }, { accounts: [], models: [] });
+    }, { accounts: [], models: [], backends: [] });
   }
 
   usage(range: string, tzOffsetMin: number, now = Date.now()): Usage {
@@ -296,6 +320,39 @@ export class QueueStore implements UsageSource {
         FROM events WHERE timestamp_ms >= ? AND auth_file <> '') WHERE rn = 1 AND failed = 1 AND st IN (401, 403)`).all(sinceMs) as any[];
       return new Map(rows.map((r) => [String(r.k), { ts: Number(r.ts), status: Number(r.st), message: String(r.msg || '').slice(0, 4000) }]));
     }, new Map());
+  }
+
+  recordDirect(ev: DirectEvent): void {
+    this.q((d) => {
+      const n = (v: number) => (Number.isFinite(v) && v > 0 ? Math.round(v) : 0);
+      const t = (s: string, max: number) => String(s || '').trim().slice(0, max);
+      const sum = ev.failed ? maskSecrets(short(ev.body || ev.summary) || t(ev.summary, 120)) : '';
+      const fb = ev.failed ? maskSecrets(String(ev.body || ev.summary || '')).slice(0, 8000) : '';
+      d.prepare(`INSERT INTO events (timestamp_ms, request_id, auth_file, account, model, upstream, failed, status, fail_summary, fail_body,
+        ttft_ms, latency_ms, stream, input_tokens, output_tokens, cached_tokens, reasoning_tokens, total_tokens, effort, path, user_agent, session, backend)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        ev.ts, t(ev.requestId, 80), t(ev.authFile, 80), t(ev.account, 160) || 'AI Studio',
+        t(ev.model, 160) || 'unknown', t(ev.upstream, 160),
+        ev.failed ? 1 : 0, ev.status, sum, fb,
+        ev.ttft && ev.ttft > 0 ? Math.round(ev.ttft) : null,
+        ev.latency != null && ev.latency >= 0 ? Math.round(ev.latency) : null,
+        ev.stream ? 1 : 0,
+        n(ev.in), n(ev.out), n(ev.cache), n(ev.think), n(ev.total),
+        t(ev.effort, 20), t(ev.path, 200), t(ev.ua, 300), t(ev.session, 120), t(ev.backend || 'ais2', 20),
+      );
+    }, undefined);
+  }
+
+  ais2QuotaUsage(sinceMs: number, accountIds: string[]): { model: string; req: number; tok: number }[] {
+    if (!accountIds.length) return [];
+    return this.q((d) => {
+      const ph = accountIds.map(() => '?').join(',');
+      const rows = d.prepare(
+        `SELECT COALESCE(NULLIF(upstream, ''), model) AS m, COUNT(*) AS n, COALESCE(SUM(total_tokens), 0) AS tok
+         FROM events WHERE timestamp_ms >= ? AND failed = 0 AND auth_file IN (${ph}) GROUP BY m`,
+      ).all(sinceMs, ...accountIds) as any[];
+      return rows.map((r) => ({ model: String(r.m || ''), req: Number(r.n || 0), tok: Number(r.tok || 0) }));
+    }, []);
   }
 }
 

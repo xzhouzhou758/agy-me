@@ -17,6 +17,8 @@ type State = 'idle' | 'starting' | 'running';
 let st: State = 'idle';
 let lastSeen = 0;
 let lastError = '';
+let pendingURLs: string[] | null = null;
+let startGen = 0;
 const sockets = new Set<Duplex>();
 const owner = new Map<Duplex, string>(); // client socket -> the session it was opened with
 
@@ -26,7 +28,7 @@ export function dropEnded() {
 }
 onSessionEnd(dropEnded);
 
-async function helper(path: '/start' | '/stop' | '/open' | '/status', timeoutMs: number, body?: { url?: string }): Promise<any> {
+async function helper(path: '/start' | '/stop' | '/open' | '/status', timeoutMs: number, body?: { url?: string; urls?: string[] }): Promise<any> {
   const r = await fetch(config.browserdURL + path, {
     method: path === '/status' ? 'GET' : 'POST',
     headers: { Authorization: 'Bearer ' + config.browserdToken, ...(body ? { 'Content-Type': 'application/json' } : {}) },
@@ -48,26 +50,66 @@ export function view() {
   return { enabled: browserOn(), state: st, error: lastError };
 }
 
-export async function start(url?: string) {
+export type StartOpts = { url?: string; urls?: string[]; fresh?: boolean };
+
+function cleanURLs(opts?: StartOpts | string): string[] {
+  if (!opts) return [];
+  const raw = typeof opts === 'string' ? [opts] : Array.isArray(opts.urls) ? opts.urls : opts.url ? [opts.url] : [];
+  const out: string[] = [];
+  for (const x of raw.slice(0, 5)) {
+    if (!x) continue;
+    const u = safeGoogleURL(String(x));
+    if (!u) throw new HttpError(400, 'invalid_url');
+    out.push(u);
+  }
+  return out;
+}
+
+export async function start(opts?: StartOpts | string) {
   need();
-  const u = url ? safeGoogleURL(url) : null;
-  if (url && !u) throw new HttpError(400, 'invalid_url');
-  if (st === 'running') {
-    if (u) await helper('/open', 30000, { url: u });
+  const urls = cleanURLs(opts);
+  const fresh = typeof opts === 'object' && !!opts?.fresh;
+  if (st === 'running' && !fresh) {
+    if (urls.length) await helper('/open', 30000, { urls });
     return view();
   }
-  if (st === 'starting') return view();
+  if (st === 'starting' && !fresh) {
+    if (urls.length) pendingURLs = urls;
+    return view();
+  }
+  if (fresh) {
+    for (const s of sockets) s.destroy();
+    sockets.clear();
+    owner.clear();
+  }
+  const gen = ++startGen;
   st = 'starting';
   lastError = '';
-  helper('/start', 90000, u ? { url: u } : undefined)
-    .then(() => { st = 'running'; lastSeen = Date.now(); })
-    .catch((e) => { st = 'idle'; lastError = (e as Error).message; console.error('[browser]', lastError); });
+  pendingURLs = null;
+  helper('/start', 90000, urls.length ? { urls } : undefined)
+    .then(async () => {
+      if (gen !== startGen) return;
+      st = 'running';
+      lastSeen = Date.now();
+      const next = pendingURLs;
+      pendingURLs = null;
+      if (next?.length) await helper('/open', 30000, { urls: next }).catch((e) => console.error('[browser] open pending:', (e as Error).message));
+    })
+    .catch((e) => {
+      if (gen !== startGen) return;
+      pendingURLs = null;
+      st = 'idle';
+      lastError = (e as Error).message;
+      console.error('[browser]', lastError);
+    });
   return view();
 }
 
 /** Idle only once browserd confirms; otherwise the state stays and the error shows (the idle reaper retries). */
 export async function stop() {
   need();
+  ++startGen;
+  pendingURLs = null;
   for (const s of sockets) s.destroy();
   sockets.clear();
   owner.clear();

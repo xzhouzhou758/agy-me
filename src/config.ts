@@ -1,4 +1,5 @@
 // Runtime configuration, read once from the environment.
+import process from 'node:process';
 
 const env = process.env;
 
@@ -36,6 +37,11 @@ export const config = {
   cpaURL: str('CPA_URL', 'http://127.0.0.1:8318').replace(/\/+$/, ''),
   cpaMgmtKey: str('CPA_MANAGEMENT_KEY'),
 
+  // lbjlaq/Antigravity-Manager (optional AGY backend)
+  agmURL: str('AGM_URL').replace(/\/+$/, ''),
+  agmApiKey: str('AGM_API_KEY'),
+  agmAdminKey: str('AGM_ADMIN_PASSWORD') || str('AGM_ADMIN_KEY') || str('AGM_API_KEY'),
+
   // Quota (Google calls go through CPA /requests/api-call, CPA injects the account's token)
   quotaBaseURLs: (str('QUOTA_BASE_URLS') || 'https://daily-cloudcode-pa.googleapis.com,https://daily-cloudcode-pa.sandbox.googleapis.com,https://cloudcode-pa.googleapis.com')
     .split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean),
@@ -69,12 +75,24 @@ export const config = {
   catalogURLs: (str('CATALOG_URLS') || 'https://models.router-for.me/models.json,https://raw.githubusercontent.com/router-for-me/models/refs/heads/main/models.json')
     .split(',').map((s) => s.trim()).filter(Boolean),
 
+  // AI Studio 2 (Mag1cFall/AIStudio2API). Empty key = AI Studio 2 feature is off.
+  aistudio2URL: str('AISTUDIO2_URL', 'http://127.0.0.1:18803').replace(/\/+$/, ''),
+  aistudio2Key: str('AISTUDIO2_KEY') || str('AISTUDIO2_API_KEY'),
+  aistudio2AdminUser: str('AISTUDIO2_ADMIN_USER', 'admin'),
+  aistudio2AdminPass: str('AISTUDIO2_ADMIN_PASSWORD') || str('AISTUDIO2_ADMIN_PASS'),
+  aistudio2Mode: (str('AISTUDIO2_MODE').toLowerCase() === 'shared' ? 'shared' : 'exclusive') as 'exclusive' | 'shared',
+  aistudio2RecheckMinutes: int('AISTUDIO2_RECHECK_MINUTES', 60),
+  upstreamTimeoutMs: int('UPSTREAM_TIMEOUT_MS', 300_000),
+
   maxBodyBytes: int('MAX_BODY_MB', 20) * 1024 * 1024,
 };
 
+export const cpaOn = () => Boolean(config.cpaURL && config.cpaMgmtKey);
+export const agmOn = () => Boolean(config.agmURL && (config.agmApiKey || config.agmAdminKey));
+
 export function validateConfig(): string[] {
   const errs: string[] = [];
-  if (!config.cpaMgmtKey) errs.push('CPA_MANAGEMENT_KEY is required');
+  if (!cpaOn() && !agmOn() && !config.aistudio2Key) errs.push('CPA_MANAGEMENT_KEY (or AGM_URL / AISTUDIO2_KEY) is required');
   if (!config.passwordHash && !config.password) errs.push('APP_PASSWORD_HASH (or APP_PASSWORD) is required');
   if (config.passwordHash && !/^scrypt:[^:]+:[^:]+$/.test(config.passwordHash)) errs.push('APP_PASSWORD_HASH must look like scrypt:<salt>:<hash> (npm run passwd)');
   return errs;

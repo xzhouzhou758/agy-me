@@ -35,7 +35,12 @@ export class JsonFile<T extends object> {
   }
 }
 
-export type Settings = { quotaRefreshMinutes: number; autoDisable: boolean; autoEnable: boolean; autoSleep: boolean; autoExclude: boolean };
+export type AgyBackend = 'cpa' | 'agm';
+export type KeyBackend = 'auto' | 'cpa' | 'agm' | 'ais2';
+export type Settings = {
+  quotaRefreshMinutes: number; autoDisable: boolean; autoEnable: boolean; autoSleep: boolean; autoExclude: boolean;
+  ais2Slim: boolean; ais2Models: string[] | null; agyBackend: AgyBackend;
+};
 /** An account this app turned off because Google answered 403: when, Google's reason, the verify / appeal link. */
 export type AutoMark = { at: number; reason: string; action: Action | null };
 // sessions: sha256(token) -> expires (ms); pwFingerprint: which password they were made with;
@@ -43,10 +48,14 @@ export type AutoMark = { at: number; reason: string; action: Action | null };
 // sleep: auth id -> put to sleep at (ms, 闲置自动休眠); auto: auth id -> auto-disable mark; autoSince: auth id -> 403 evidence older than this no longer counts (turned on again)
 type State = {
   sessions: Record<string, number>; settings: Settings; pwFingerprint?: string; pwHash?: string; keyNotes?: Record<string, string>;
+  keyBackends?: Record<string, KeyBackend>;
   auto?: Record<string, AutoMark>; autoSince?: Record<string, number>; sleep?: Record<string, number>;
 };
 
-const defaults = (): Settings => ({ quotaRefreshMinutes: config.quotaRefreshMinutes, autoDisable: true, autoEnable: true, autoSleep: false, autoExclude: true });
+const defaults = (): Settings => ({
+  quotaRefreshMinutes: config.quotaRefreshMinutes, autoDisable: true, autoEnable: true, autoSleep: false, autoExclude: true,
+  ais2Slim: true, ais2Models: null, agyBackend: 'cpa',
+});
 export const state = new JsonFile<State>('state.json', () => ({ sessions: {}, settings: defaults() }));
 
 export function settings(): Settings {

@@ -1,9 +1,9 @@
 // JSON API for the web UI. Everything except login needs the session cookie.
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { config } from './config.ts';
+import { config, cpaOn, agmOn } from './config.ts';
 import { HttpError, sendJSON, readJSON, readBody, str, clampInt, token } from './util.ts';
 import { requireAuth, authed, login, logout, changePassword } from './auth.ts';
-import { settings, setSettings } from './store.ts';
+import { settings, setSettings, type KeyBackend } from './store.ts';
 import * as cpa from './cpa.ts';
 import * as quota from './quota.ts';
 import * as browser from './browser.ts';
@@ -15,6 +15,9 @@ import * as auto from './autodisable.ts';
 import * as sleeper from './autosleep.ts';
 import * as excluder from './autoexclude.ts';
 import { readZip, writeZip } from './zip.ts';
+import * as aistudio2 from './aistudio2.ts';
+import * as agm from './agm.ts';
+import { fetchAIS2ModelIds } from './gateway.ts';
 
 type Handler = (req: IncomingMessage, res: ServerResponse, p: Record<string, string>, url: URL) => Promise<unknown> | unknown;
 const routes: { method: string; re: RegExp; keys: string[]; open: boolean; h: Handler }[] = [];
@@ -27,7 +30,12 @@ function route(method: string, path: string, h: Handler, open = false) {
 export async function handleAPI(req: IncomingMessage, res: ServerResponse, url: URL) {
   const method = req.method || 'GET';
   // CSRF: state-changing calls must carry a custom header (forces a CORS preflight cross-site).
-  if (method !== 'GET' && method !== 'HEAD' && req.headers['x-app-csrf'] !== '1') throw new HttpError(403, 'csrf');
+  if (method !== 'GET' && method !== 'HEAD') {
+    if (req.headers['x-app-csrf'] !== '1') throw new HttpError(403, 'csrf');
+    if (req.headers.origin && req.headers.host) {
+      try { if (new URL(String(req.headers.origin)).host !== req.headers.host) throw new HttpError(403, 'csrf_origin'); } catch (e) { if (e instanceof HttpError) throw e; throw new HttpError(403, 'csrf_origin'); }
+    }
+  }
   for (const r of routes) {
     if (r.method !== method) continue;
     const m = r.re.exec(url.pathname);
@@ -47,7 +55,17 @@ route('POST', '/api/login', async (req, res) => { login(req, res, await readJSON
 route('POST', '/api/logout', (req, res) => { logout(req, res); return { ok: true }; }, true);
 route('GET', '/api/me', (req) => {
   if (!authed(req)) throw new HttpError(401, 'unauthorized');
-  return { ok: true, browser: browser.browserOn() };
+  const st = settings();
+  return {
+    ok: true,
+    browser: browser.browserOn(),
+    cpa: cpaOn(),
+    agm: agmOn(),
+    agyBackend: st.agyBackend,
+    aistudio2: aistudio2.aistudio2On(),
+    ais2Slim: st.ais2Slim,
+    ais2Models: st.ais2Models,
+  };
 }, true);
 
 // ---------- accounts ----------
@@ -77,7 +95,7 @@ function ids(v: unknown): string[] {
   return l;
 }
 
-route('GET', '/api/accounts', async () => ({ accounts: await accountList(), progress: quota.progress() }));
+route('GET', '/api/accounts', async () => cpaOn() ? ({ accounts: await accountList(), progress: quota.progress() }) : ({ accounts: [], progress: quota.progress() }));
 
 route('PATCH', '/api/accounts/:id', async (req, _res, p) => {
   await known(p.id);
@@ -125,17 +143,21 @@ route('POST', '/api/quota/refresh', async (req) => {
   const b = await readJSON(req);
   const list = ids(b.ids);
   const c = list.length ? await cpa.creds(5000) : null;
-  return { queued: c ? quota.enqueue(list.filter((id) => isAG(c, id))) : await quota.enqueueAll(), progress: quota.progress() };
+  const valid = c ? list.filter((id) => isAG(c, id)) : [];
+  const queued = c ? quota.enqueue(valid) : await quota.enqueueAll();
+  const probed = await auto.recheck(c ? valid : undefined).catch(() => 0);
+  return { queued, probed, progress: quota.progress() };
 });
 
 // ---------- dashboard ----------
 route('GET', '/api/overview', async () => {
-  const list = await accountList();
+  const list = cpaOn() ? await accountList().catch(() => []) : [];
   const n = counts(list);
   const src = usageSource();
   const usable = n.total - n.disabled;
   const bans = list.filter((a) => a.status === 'banned').map((a) => ({ id: a.id, email: a.email, reason: a.reason, action: a.action }));
   const autoOff = list.filter((a) => a.autoAt).sort((a, b) => b.autoAt - a.autoAt).map((a) => ({ id: a.id, email: a.email, reason: a.reason, at: a.autoAt, action: a.action }));
+  const agmStat = agmOn() ? await agm.ping().catch(() => ({ ok: false, ms: 0, total: 0, active: 0, currentAccountId: null })) : null;
   return {
     counts: n,
     healthy: usable ? n.ok / usable : null,
@@ -146,6 +168,9 @@ route('GET', '/api/overview', async () => {
     recent: src.recent(30),
     usageOK: src.available(),
     progress: quota.progress(),
+    agyBackend: settings().agyBackend,
+    agm: agmStat,
+    ais2: aistudio2.aistudio2On() ? aistudio2.overviewQuota(src) : null,
   };
 });
 
@@ -324,7 +349,7 @@ route('GET', '/api/logs', (_req, _res, _p, url) => {
   const num = (k: string) => (q.get(k) ? Number(q.get(k)) : undefined);
   const src = usageSource();
   return {
-    ...src.logs({ q: q.get('q') || '', account: q.get('account') || '', model: q.get('model') || '', status: q.get('status') || '', from: num('from'), to: num('to'), page: num('page'), size: num('size') }),
+    ...src.logs({ q: q.get('q') || '', account: q.get('account') || '', model: q.get('model') || '', status: q.get('status') || '', backend: q.get('backend') || '', from: num('from'), to: num('to'), page: num('page'), size: num('size') }),
     ...(q.get('facets') ? { facets: src.facets() } : {}),
     available: src.available(),
   };
@@ -351,7 +376,7 @@ const CPA_SETTINGS: [string, string, 'bool' | 'int', number, number][] = [
   ['disableCooling', 'routing/cooldown/disable-cooling', 'bool', 0, 0],
 ];
 route('GET', '/api/settings', async () => {
-  const ping = await cpa.ping();
+  const ping = cpaOn() ? await cpa.ping() : { ok: false, ms: 0, error: 'disabled' };
   const cpaValues: Record<string, unknown> = {};
   if (ping.ok) {
     await Promise.all(CPA_SETTINGS.map(async ([k, path]) => {
@@ -360,7 +385,16 @@ route('GET', '/api/settings', async () => {
     }));
   }
   const src = usageSource();
-  return { cpa: { url: config.cpaURL, ...ping }, usage: { kind: src.kind, ok: src.available() && !drainStatus(), error: drainStatus() }, values: cpaValues, app: settings() };
+  const agmPing = agmOn() ? { url: config.agmURL, ...(await agm.ping()) } : null;
+  const ais2Ping = aistudio2.aistudio2On() ? { url: config.aistudio2URL, mode: config.aistudio2Mode, ...(await aistudio2.ping()) } : null;
+  return {
+    cpa: cpaOn() ? { url: config.cpaURL, ...ping } : null,
+    agm: agmPing,
+    aistudio2: ais2Ping,
+    usage: { kind: src.kind, ok: src.available() && !drainStatus(), error: drainStatus() },
+    values: cpaValues,
+    app: settings(),
+  };
 });
 route('PATCH', '/api/settings', async (req) => {
   const b = await readJSON(req);
@@ -370,9 +404,28 @@ route('PATCH', '/api/settings', async (req) => {
     quota.startQuotaRefresher(5000);
     return { ok: true };
   }
-  if (key === 'autoDisable' || key === 'autoEnable') {
+  if (key === 'autoDisable' || key === 'autoEnable' || key === 'ais2Slim') {
     setSettings({ [key]: !!b.value });
     return { ok: true, value: !!b.value };
+  }
+  if (key === 'agyBackend') {
+    const val = String(b.value || '');
+    if (val !== 'cpa' && val !== 'agm') throw new HttpError(400, 'invalid');
+    if (val === 'cpa' && !cpaOn()) throw new HttpError(400, 'backend_disabled', 'CPA 未配置');
+    if (val === 'agm' && !agmOn()) throw new HttpError(400, 'backend_disabled', 'Antigravity-Manager 未配置');
+    setSettings({ agyBackend: val });
+    return { ok: true, value: val };
+  }
+  if (key === 'ais2Models') {
+    if (b.value === null) {
+      setSettings({ ais2Models: null });
+      return { ok: true, value: null };
+    }
+    if (!Array.isArray(b.value)) throw new HttpError(400, 'invalid_models');
+    const clean: string[] = [...new Set<string>(b.value.map((x: unknown) => String(x || '').trim()).filter((x: string) => x.length > 0 && x.length <= 120))].slice(0, 200);
+    const val = clean.length ? clean : null;
+    setSettings({ ais2Models: val });
+    return { ok: true, value: val };
   }
   if (key === 'autoSleep') {
     setSettings({ autoSleep: !!b.value });
@@ -400,11 +453,75 @@ route('POST', '/api/keys', async (req) => {
   const b = await readJSON(req, 4096);
   return keys.add(b.key, b.generate === true, str(b.note, 40));
 });
-route('PATCH', '/api/keys/:id', async (req, _res, p) => ({ keys: await keys.setNote(p.id, str((await readJSON(req, 4096)).note, 40)) }));
+route('PATCH', '/api/keys/:id', async (req, _res, p) => {
+  const b = await readJSON(req, 4096);
+  let list: keys.KeyView[] | undefined;
+  if (typeof b.note === 'string') list = await keys.setNote(p.id, str(b.note, 40));
+  if (typeof b.backend === 'string') list = await keys.setBackend(p.id, b.backend as KeyBackend);
+  if (!list) throw new HttpError(400, 'invalid');
+  return { keys: list };
+});
 route('DELETE', '/api/keys/:id', async (_req, _res, p) => ({ keys: await keys.remove(p.id) }));
 
 // ---------- browser ----------
 route('GET', '/api/browser', () => browser.view());
-route('POST', '/api/browser/start', async (req) => browser.start(str((await readJSON(req)).url, 2048) || undefined));
+route('POST', '/api/browser/start', async (req) => {
+  const b = await readJSON(req);
+  const urls = Array.isArray(b.urls) ? b.urls.slice(0, 5).map((u: unknown) => str(u, 2048)).filter(Boolean) : undefined;
+  const url = str(b.url, 2048) || undefined;
+  return browser.start({ url, urls, fresh: b.fresh === true });
+});
 route('POST', '/api/browser/stop', () => browser.stop());
+
+// ---------- AI Studio 2 (self-use, isolated) ----------
+const needAIS2 = () => { if (!aistudio2.aistudio2On()) throw new HttpError(404, 'not_found'); };
+route('GET', '/api/aistudio2', () => {
+  needAIS2();
+  const ov = aistudio2.overviewQuota(usageSource());
+  const st = settings();
+  return { accounts: ov.accounts, counts: ov.counts, quota: ov.quota, slim: st.ais2Slim, modelsPick: st.ais2Models };
+});
+route('GET', '/api/aistudio2/models', async () => {
+  needAIS2();
+  return { models: await fetchAIS2ModelIds() };
+});
+route('POST', '/api/aistudio2', async (req) => {
+  needAIS2();
+  const b = await readJSON(req);
+  if (typeof b.cookies !== 'string') throw new HttpError(400, 'aistudio_cookie', '请粘贴 Cookie 或 JSON 凭证');
+  return aistudio2.upload(b.cookies);
+});
+route('PATCH', '/api/aistudio2/:id', async (req, _res, p) => {
+  needAIS2();
+  const b = await readJSON(req, 8192);
+  return aistudio2.patch(p.id, {
+    disabled: typeof b.disabled === 'boolean' ? b.disabled : undefined,
+    label: typeof b.label === 'string' ? str(b.label, 120) : undefined,
+  });
+});
+route('POST', '/api/aistudio2/:id/check', async (_req, _res, p) => aistudio2.recheck(p.id));
+route('POST', '/api/aistudio2/recheck', async () => { needAIS2(); return aistudio2.sweep(); });
+route('DELETE', '/api/aistudio2/:id', async (_req, _res, p) => aistudio2.remove(p.id));
+
+// ---------- Antigravity-Manager (agm) ----------
+const needAGM = () => { if (!agmOn()) throw new HttpError(404, 'not_found'); };
+route('GET', '/api/agm', async () => {
+  needAGM();
+  const [status, accounts] = await Promise.all([agm.ping(), agm.listAccounts()]);
+  return { status, accounts };
+});
+route('POST', '/api/agm/refresh', async () => { needAGM(); return agm.refreshQuotas(); });
+route('POST', '/api/agm/sync-to', async (req) => {
+  needAGM();
+  const b = await readJSON(req).catch(() => ({}));
+  const want = Array.isArray(b?.ids) && b.ids.length ? ids(b.ids) : undefined;
+  return agm.syncCpaToAgm(want);
+});
+route('POST', '/api/agm/sync-from', async (req) => {
+  needAGM();
+  const b = await readJSON(req).catch(() => ({}));
+  const want = Array.isArray(b?.ids) && b.ids.length ? ids(b.ids) : undefined;
+  return agm.syncAgmToCpa(want);
+});
+
 

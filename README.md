@@ -1,87 +1,89 @@
 # agy-me
 
-自用 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 的网页管理面板：账号管理、额度查询、请求日志、用量统计，403 封号自动停用与探测恢复。单用户，一个密码登录，Node 24 直接跑 TypeScript，运行时零依赖，内存 ~50MB。
+自用多后端 AI 网关与网页管理面板，把 **[CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI)**、**[Antigravity-Manager（AGM）](https://github.com/lbjlaq/Antigravity-Manager)** 和纯自用 **[AIStudio2API](https://github.com/Mag1cFall/AIStudio2API)** 统一收口到一个入口和一个控制台。单用户密码登录，Node 24 直接运行 TypeScript，运行时零依赖，轻巧省内存。
 
 功能细节见 [docs/功能说明.md](docs/功能说明.md)。
 
-## 一键部署
+## 核心能力
 
-服务器上装好 docker（带 compose），执行：
+- **AGY 双后端一键秒切**：网页内一键切换主入口 `/v1` 走 **CPA** 或 **Antigravity-Manager**，客户端无需改地址和密钥；支持为单个 API 密钥单独指定固定后端。
+- **双边凭证互通与原生面板**：CPA ↔ Antigravity-Manager 一键双向同步 / 导入 OAuth 凭证；在面板内安全代理打开 `/cpa/` 与 `/agm/` 原生后台，真实密钥不落浏览器。
+- **纯自用 AI Studio**：独立管理自己的 Google AI Studio Cookie 凭证，零分流、零共享，可通过专属 `/ais2/v1` 或主入口 `ais2/模型名` 前缀直达调用。
+- **额度、日志与防封号**：四族额度圆环、403/401 自动停用与探测恢复、按额度自动排除模型、统一请求日志（按 `CPA / AGM / AI Studio` 筛选）与 Token 统计、内置远程 Chrome。
+
+## 一键部署（新用户）
+
+服务器上装好 Docker（带 Compose v2 插件），执行：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/xzhouzhou758/agy-me/main/deploy.sh | bash
 ```
 
-脚本会一步步问你：安装目录、实例名（容器名；同一台机器装第二套时换个名字）、端口、访问路径前缀（默认 `/me`）、登录密码、CPA 是顺带装一个新的还是接你已有的（新装的可以顺便把 CPA 的 `/v1` 端口开给酒馆等客户端）。然后自动生成 `.env` 和 `docker-compose.yml`、拉镜像、启动，最后打印访问地址。
+向导会依次引导你选择：安装目录、面板端口、路径前缀（默认 `/me`）、登录密码，以及按需勾选内置或外连的 **CPA**、**Antigravity-Manager**、**AI Studio** 后端（至少启用一个即可），全自动生成配置并启动。
 
-**升级**：同一条命令再跑一次，选「只升级镜像」即可，配置和数据都不动。
+## 已有老用户如何更新
 
-镜像：`ghcr.io/xzhouzhou758/agy-me`（`latest`、版本号，amd64 / arm64）。
+**老用户无需卸载、不会丢失账号、密码或 API 密钥**，直接重新运行同一条脚本即可：
+
+```sh
+# 方式 A：交互升级（重跑同一命令，直接回车选 1）
+curl -fsSL https://raw.githubusercontent.com/xzhouzhou758/agy-me/main/deploy.sh | bash
+
+# 方式 B：全自动无缝升级（不交互，直接保留全部配置和数据升级镜像）
+curl -fsSL https://raw.githubusercontent.com/xzhouzhou758/agy-me/main/deploy.sh | bash -s -- --upgrade
+```
+
+脚本检测到已有安装后提供 3 个选项：
+1. **无缝升级（默认推荐）**：自动备份 `.env`、`docker-compose.yml` 和 `cpa/config.yaml`，拉取新版镜像，把旧版内存上限从 `128m` 升级到 `256m`、自动挂载模型目录并原地补齐 `send-keepalive-before-ft: true`（保持 `cpa/config.yaml` inode 和原密钥不变）。
+2. **升级并增配后端**：免重输密码和 CPA 配置，直接增量开启 **Antigravity-Manager** 或 **AI Studio** 容器（或连接你机器上已跑起来的实例）。
+3. **全新重配向导**：保留 `data/` 账号与日志数据，重新配置所有选项。
+
+> **客户端接入小提示**：升级后，你以前填在酒馆 / Luker 里的 `:8318/v1` 地址**依然继续可用**；如果想使用网页上的 **CPA ↔ AGM 切换开关** 或 **`ais2/` 模型直连**，只需把客户端 API 地址改为 `http://服务器:8321/me/v1`（密钥还是原来的）。如果前面有 Nginx / OpenResty 反代，记得把 `/me/v1` 也转到 `8321` 并关闭 `proxy_buffering`。
+
+镜像：`ghcr.io/xzhouzhou758/agy-me`（`latest`、版本号，支持 `amd64` / `arm64`）。
 
 ## 手动部署
 
-```yaml
-# docker-compose.yml
-services:
-  agy-me:
-    image: ghcr.io/xzhouzhou758/agy-me:latest
-    container_name: agy-me
-    env_file: .env
-    environment:
-      HOST: 0.0.0.0
-    ports:
-      - "8321:8321"
-    volumes:
-      - ./data:/app/data     # 容器内用户是 uid 1000：mkdir data && chown 1000:1000 data
-    restart: unless-stopped
-```
-
-生成密码哈希，填进 `.env`：
-
 ```sh
-printf '你的密码' | docker run --rm -i ghcr.io/xzhouzhou758/agy-me node src/passwd.ts
+git clone https://github.com/xzhouzhou758/agy-me.git /opt/agy-me
+cd /opt/agy-me
+cp deploy/agy-me.env.example agy-me.env && chmod 600 agy-me.env
+cp deploy/docker-compose.yml docker-compose.yml
 ```
 
-```sh
-# .env
-APP_PASSWORD_HASH=scrypt:...
-CPA_URL=http://你的CPA:8318
-CPA_MANAGEMENT_KEY=CPA 的管理密钥明文
-BASE_PATH=/me
-```
+1. 生成登录密码哈希填入 `agy-me.env` 的 `APP_PASSWORD_HASH`：
+   ```sh
+   printf '你的密码' | docker run --rm -i ghcr.io/xzhouzhou758/agy-me:latest node src/passwd.ts
+   ```
+2. 根据要用的后端填写 `CPA_URL`/`CPA_MANAGEMENT_KEY`、`AGM_URL`/`AGM_API_KEY`/`AGM_ADMIN_PASSWORD` 或 `AISTUDIO2_URL`/`AISTUDIO2_KEY`；如需一并拉起可选内置容器，带上对应 profile 启动：
+   ```sh
+   docker compose --profile agm --profile aistudio2 up -d
+   ```
 
-`docker compose up -d`，打开 `http://服务器:8321/me/`。CPA 的配置模板（含用量队列开关）见 [deploy/cpa-config.example.yaml](deploy/cpa-config.example.yaml)，agy-me 靠 CPA 的 `usage-statistics-enabled` 队列记请求日志。
+更多部署示例与 Nginx 反代说明见 [deploy/](deploy/) 与 [docs/功能说明.md](docs/功能说明.md)。
 
-> 公网请在前面套 nginx / Caddy 上 https。远程浏览器页需要宿主机跑 `ops/browserd.py`，一般用不到，不配就自动隐藏。
-
-## 环境变量
+## 环境变量速查
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `APP_PASSWORD_HASH` | — | 登录密码的 scrypt 哈希（必填，或用明文 `APP_PASSWORD` 仅限调试）。设置页改过密码后以 `data/state.json` 里的为准 |
-| `APP_PASSWORD_RESET` | 空 | `1`＝启动时丢掉设置页改的密码，回到 env 里的；用完删掉 |
-| `CPA_URL` | `http://127.0.0.1:8318` | CPA 地址 |
-| `CPA_MANAGEMENT_KEY` | — | **必填**，CPA 管理密钥明文 |
-| `HOST` / `PORT` | `127.0.0.1` / `8321` | 监听地址（容器里要设 `0.0.0.0`） |
-| `BASE_PATH` | 空 | 访问路径前缀，如 `/me` |
-| `DATA_DIR` | `./data`（镜像里 `/app/data`） | 数据目录 |
-| `USAGE_RETENTION_DAYS` | `30` | 请求记录保留天数 |
-| `USAGE_POLL_MS` | `5000` | 取 CPA 用量队列的间隔 |
-| `QUOTA_REFRESH_MINUTES` | `15` | 后台刷新额度间隔，0 关闭（设置页可改） |
-| `QUOTA_CONCURRENCY` | `4` | 同时查几个号 |
-| `AUTO_DISABLE_SWEEP_MS` / `AUTO_DISABLE_PROBE_SECONDS` / `AUTO_DISABLE_IDLE_SECONDS` | `30000` / `1800` / `3600` | 403 自动停用的巡检、探测、闲置判定，一般不用动 |
-| `AUTO_SLEEP_SWEEP_MS` / `AUTO_SLEEP_IDLE_SECONDS` | `300000` / `3600` | 闲置自动休眠（设置页开关，默认关）多久查一次（0 不查）/ 多久没请求算闲置 |
-| `QUOTA_BASE_URLS` / `QUOTA_USER_AGENT` | Google 三个地址 / Antigravity UA | 一般不用动 |
-| `COOKIE_SECURE` | 自动 | 自动＝经 https 才带 Secure；`1` / `0` 强制 |
-| `TRUST_PROXY` | `1` | 信任反代的 `X-Real-IP` / `X-Forwarded-*`（登录限速按 IP） |
-| `SESSION_DAYS` | `30` | 登录有效期 |
-| `MAX_BODY_MB` | `20` | 请求体上限 |
-| `BROWSERD_URL` / `BROWSERD_TOKEN` / `BROWSER_UPSTREAM` / `BROWSER_IDLE_MINUTES` | 见 `ops/` | 远程浏览器（可选），Token 为空就隐藏该页 |
+| `APP_PASSWORD_HASH` | — | 登录密码 scrypt 哈希（必填，设置页修改后以 `state.json` 为准） |
+| `APP_PASSWORD_RESET` | 空 | `1`＝启动时重置回 env 密码（用完删掉） |
+| `CPA_URL` / `CPA_MANAGEMENT_KEY` | `http://127.0.0.1:8318` / 空 | CPA 管理地址与密钥（与 AGM / AI Studio 至少启用一项） |
+| `AGM_URL` / `AGM_API_KEY` / `AGM_ADMIN_PASSWORD` | 空 | Antigravity-Manager 地址、代理 Key 与管理密码 |
+| `AISTUDIO2_URL` / `AISTUDIO2_KEY` | `http://127.0.0.1:18803` / 空 | AIStudio2API 地址与调用 Key（空则关闭 AI Studio 页） |
+| `AISTUDIO2_ADMIN_USER` / `AISTUDIO2_ADMIN_PASSWORD` | `admin` / 空 | AIStudio2API 管理员账密 |
+| `AISTUDIO2_MODE` | `exclusive` | `exclusive`（单机独占自动认领）\| `shared`（与它站共用引擎时严格隔离） |
+| `AISTUDIO2_RECHECK_MINUTES` | `60` | AI Studio 账号定时巡检周期（分钟，0 关闭） |
+| `HOST` / `PORT` / `BASE_PATH` | `127.0.0.1` / `8321` / 空 | 监听地址、端口与路径前缀（容器内设为 `0.0.0.0`） |
+| `DATA_DIR` | `./data` | 数据持久化目录（含 `state.json`、`client-keys.json`、`usage.sqlite`、`aistudio2.sqlite`） |
+| `MAX_BODY_MB` / `UPSTREAM_TIMEOUT_MS` | `20` / `300000` | 单次请求体上限与上游超时时间 |
+| `USAGE_RETENTION_DAYS` / `QUOTA_REFRESH_MINUTES` | `30` / `15` | 日志保留天数与额度后台刷新周期 |
 
 ## 本地开发
 
 ```sh
 npm install
-npm run dev     # mock CPA + 假数据，http://127.0.0.1:8321/me/ ，密码 agyme-dev
-npm test
+npm run check   # TypeScript 严格类型检查
+npm test        # 全量单元与多后端集成测试
+npm run dev     # 本地 mock CPA 预览（http://127.0.0.1:8321/me/ ，密码 agyme-dev）
 ```
