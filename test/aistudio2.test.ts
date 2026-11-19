@@ -7,9 +7,10 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import type { AddressInfo } from 'node:net';
 import { startMockCPA } from './mock-cpa.ts';
 import { hashPassword } from '../src/util.ts';
@@ -18,6 +19,32 @@ import { ais2Id } from '../src/aistudio2.ts';
 const MGMT = 'mgmt-ais2-test', PW = 'ais2-test-password';
 const AIS2_KEY = 'sk-ais2-backend-secret', AIS2_PASS = 'ais2-admin-pass';
 const CLIENT_KEY = 'sk-mock-client-key-0001'; // seeded by startMockCPA in access/api-keys
+
+function startMockGeoIP() {
+  const rawMmdb = Buffer.concat([
+    Buffer.alloc(2048, 0x42),
+    Buffer.from('\xab\xcd\xefMaxMind.com', 'latin1'),
+  ]);
+  const gzMmdb = gzipSync(rawMmdb);
+  const st = { hits: 0, fail: false, rawMmdb };
+  const server = http.createServer((req, res) => {
+    st.hits++;
+    if (st.fail) {
+      res.writeHead(502, { 'Content-Type': 'text/plain' }).end('upstream geoip mirror down');
+      return;
+    }
+    if (req.url === '/corrupt.mmdb') {
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream' }).end('not-a-valid-mmdb');
+      return;
+    }
+    if (req.url === '/GeoLite2-City.mmdb.gz') {
+      res.writeHead(200, { 'Content-Type': 'application/gzip' }).end(gzMmdb);
+      return;
+    }
+    res.writeHead(404).end('not found');
+  });
+  return { server, st };
+}
 
 function startMockAIS2() {
   const st = {
@@ -29,6 +56,10 @@ function startMockAIS2() {
     seenGen: [] as Array<{ method: string; url: string; headers: http.IncomingHttpHeaders; body: string }>,
     failNextFor: new Map<string, number>(),
     refreshState: new Map<string, string>(),
+    geoipPath: '',
+    requireGeoipOrEnv: false,
+    forceAlwaysGeoipFail: false,
+    importCalls: [] as Array<{ email: string; locale?: string; timezone?: string }>,
   };
 
   let seq = 0;
@@ -80,11 +111,24 @@ function startMockAIS2() {
         const j = JSON.parse(raw || '{}');
         const item = j.items?.[0];
         const email = String(item?.email || '').toLowerCase();
+        const locale = typeof j.locale === 'string' ? j.locale : undefined;
+        const timezone = typeof j.timezone === 'string' ? j.timezone : undefined;
+        st.importCalls.push({ email, locale, timezone });
         const tid = 'task-' + (++seq);
         const tier = email.startsWith('ultra') ? 'ultra' : 'pro';
         const task: any = { id: tid, kind: 'cookie', state: 'running', items: [{ label: email, state: 'running' }] };
         st.tasks.set(tid, task);
+        const hasMmdb = Boolean(st.geoipPath && existsSync(st.geoipPath));
+        const hasEnvFallback = Boolean(locale && timezone);
+        const failGeoip = st.forceAlwaysGeoipFail || (st.requireGeoipOrEnv && !hasMmdb && !hasEnvFallback);
         setTimeout(() => {
+          if (failGeoip) {
+            const geoErr = '按出口位置确定账户语言与时区: 下载 IP 库: https://github.com/daijro/geoip-all-in-one/releases/latest/download/geoip-aio-ipv4.mmdb.zip 返回 HTTP 404';
+            task.state = 'failed';
+            task.error = geoErr;
+            task.items = [{ label: email, state: 'failed', error: geoErr }];
+            return;
+          }
           st.accounts.set(email, { id: email, state: 'ready', benefit_tier: tier, enabled: true });
           task.state = 'done';
           task.items = [{ label: email, state: 'done' }];
@@ -184,6 +228,7 @@ function startMockAIS2() {
 
 const cpaMock = startMockCPA({ mgmtKey: MGMT });
 const ais2Mock = startMockAIS2();
+const geoipMock = startMockGeoIP();
 let app: ChildProcess;
 let base = '', dir = '', logs = '';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -207,8 +252,10 @@ const panel = new PanelClient();
 before(async () => {
   await new Promise<void>((r) => cpaMock.server.listen(0, '127.0.0.1', () => r()));
   await new Promise<void>((r) => ais2Mock.server.listen(0, '127.0.0.1', () => r()));
+  await new Promise<void>((r) => geoipMock.server.listen(0, '127.0.0.1', () => r()));
   const cpaPort = (cpaMock.server.address() as AddressInfo).port;
   const ais2Port = (ais2Mock.server.address() as AddressInfo).port;
+  const geoipPort = (geoipMock.server.address() as AddressInfo).port;
 
   // Seed a foreign account owned by agy-pot in the shared AIStudio2API backend!
   ais2Mock.st.accounts.set('pot_user@example.invalid', {
@@ -216,6 +263,7 @@ before(async () => {
   });
 
   dir = mkdtempSync(join(tmpdir(), 'agyme-ais2-'));
+  ais2Mock.st.geoipPath = join(dir, 'data', 'aistudio2api', 'runtime', 'geoip', 'geoip-aio-ipv4.mmdb');
   const port = 23000 + Math.floor(Math.random() * 1000);
   base = `http://127.0.0.1:${port}/me`;
   app = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/main.ts'], {
@@ -231,6 +279,7 @@ before(async () => {
       AISTUDIO2_ADMIN_PASSWORD: AIS2_PASS,
       AISTUDIO2_MODE: 'shared',
       AISTUDIO2_RECHECK_MINUTES: '0',
+      AISTUDIO2_GEOIP_URLS: `http://127.0.0.1:${geoipPort}/corrupt.mmdb,http://127.0.0.1:${geoipPort}/GeoLite2-City.mmdb.gz`,
       QUOTA_REFRESH_MINUTES: '0', AUTO_DISABLE_SWEEP_MS: '0', USAGE_POLL_MS: '60000',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -246,7 +295,7 @@ before(async () => {
 
 after(async () => {
   if (app && app.exitCode === null) await new Promise((r) => { app.once('exit', r); app.kill('SIGTERM'); });
-  for (const s of [cpaMock.server, ais2Mock.server]) { s.closeAllConnections(); s.close(); }
+  for (const s of [cpaMock.server, ais2Mock.server, geoipMock.server]) { s.closeAllConnections(); s.close(); }
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -437,5 +486,92 @@ test('sweep, single check, disable toggle, and delete keep pot_user untouched', 
   assert.equal((await panel.req('DELETE', `/api/aistudio2/${ultra2Id}`)).status, 200);
   assert.equal(ais2Mock.st.accounts.has('ultra2@example.invalid'), false);
   assert.equal(ais2Mock.st.accounts.has('pot_user@example.invalid'), true);
+  assert.doesNotMatch(logs, /\[error\]/, logs);
+});
+
+test('GeoIP 404 regression: locale/timezone fallback, local .mmdb.gz self-heal, and valid account protection', async () => {
+  const ais2LocalDir = join(dir, 'data', 'aistudio2api');
+  const v4Path = join(ais2LocalDir, 'runtime', 'geoip', 'geoip-aio-ipv4.mmdb');
+  const v6Path = join(ais2LocalDir, 'runtime', 'geoip', 'geoip-aio-ipv6.mmdb');
+
+  ais2Mock.st.requireGeoipOrEnv = true;
+
+  // Scenario B (1): External mode (no local aistudio2api/ directory) -> falls back to locale/timezone without creating local dir
+  assert.equal(existsSync(ais2LocalDir), false);
+  ais2Mock.st.importCalls.length = 0;
+  const b1 = await panel.req('POST', '/api/aistudio2', {
+    cookies: 'SAPISID=geo_ext@example.invalid; SID=1',
+  });
+  assert.equal(b1.status, 200);
+  assert.equal(b1.data.email, 'geo_ext@example.invalid');
+  assert.equal(b1.data.status, 'valid');
+  assert.equal(existsSync(ais2LocalDir), false, 'external mode must not create local aistudio2api dir');
+  assert.equal(geoipMock.st.hits, 0);
+  assert.deepEqual(ais2Mock.st.importCalls, [
+    { email: 'geo_ext@example.invalid', locale: undefined, timezone: undefined },
+    { email: 'geo_ext@example.invalid', locale: 'en-US', timezone: 'America/Los_Angeles' },
+  ]);
+
+  // Scenario B (2): Local aistudio2api/ exists, but GeoIP mirror is unreachable -> still succeeds via locale/timezone fallback
+  mkdirSync(ais2LocalDir, { recursive: true });
+  geoipMock.st.fail = true;
+  ais2Mock.st.importCalls.length = 0;
+  const b2 = await panel.req('POST', '/api/aistudio2', {
+    cookies: 'SAPISID=geo_srcdown@example.invalid; SID=1',
+  });
+  assert.equal(b2.status, 200);
+  assert.equal(b2.data.status, 'valid');
+  assert.ok(geoipMock.st.hits > 0);
+  assert.equal(existsSync(v4Path), false);
+  assert.deepEqual(ais2Mock.st.importCalls, [
+    { email: 'geo_srcdown@example.invalid', locale: undefined, timezone: undefined },
+    { email: 'geo_srcdown@example.invalid', locale: 'en-US', timezone: 'America/Los_Angeles' },
+  ]);
+
+  // Scenario A: Local aistudio2api/ exists and GeoIP .mmdb.gz mirror works -> downloads, gunzips, verifies MaxMind.com, writes ipv4+ipv6, and succeeds on native retry!
+  geoipMock.st.fail = false;
+  ais2Mock.st.importCalls.length = 0;
+  const a1 = await panel.req('POST', '/api/aistudio2', {
+    cookies: 'SAPISID=geo_heal@example.invalid; SID=1',
+  });
+  assert.equal(a1.status, 200);
+  assert.equal(a1.data.email, 'geo_heal@example.invalid');
+  assert.equal(a1.data.status, 'valid');
+  assert.equal(existsSync(v4Path), true);
+  assert.equal(existsSync(v6Path), true);
+  assert.deepEqual(readFileSync(v4Path), geoipMock.st.rawMmdb);
+  assert.deepEqual(readFileSync(v6Path), geoipMock.st.rawMmdb);
+  assert.ok(readFileSync(v4Path).includes(Buffer.from('MaxMind.com', 'ascii')));
+  assert.deepEqual(ais2Mock.st.importCalls, [
+    { email: 'geo_heal@example.invalid', locale: undefined, timezone: undefined },
+    { email: 'geo_heal@example.invalid', locale: undefined, timezone: undefined },
+  ]);
+
+  // Scenario C: Backend still returns GeoIP download error even with locale/timezone -> returns 503 and NEVER marks existing valid account dead or removes it from backend!
+  ais2Mock.st.forceAlwaysGeoipFail = true;
+  const c1 = await panel.req('POST', '/api/aistudio2', {
+    cookies: 'SAPISID=geo_heal@example.invalid; SID=2',
+  });
+  assert.equal(c1.status, 503);
+  assert.equal(c1.data.error, 'aistudio_check_failed');
+  assert.match(String(c1.data.message || ''), /GeoIP/);
+  assert.match(String(c1.data.message || ''), /geoip-aio-ipv4\.mmdb/);
+  assert.equal(ais2Mock.st.accounts.has('geo_heal@example.invalid'), true, 'existing valid account must NOT be removed from backend');
+
+  const afterList1 = await panel.req('GET', '/api/aistudio2');
+  const healedAcc = afterList1.data.accounts.find((x: any) => x.email === 'geo_heal@example.invalid');
+  assert.ok(healedAcc);
+  assert.equal(healedAcc.status, 'valid', 'existing valid account must NOT be marked dead');
+
+  // Also ensure a brand-new account failing with GeoIP error cleans up its 'importing' placeholder
+  const c2 = await panel.req('POST', '/api/aistudio2', {
+    cookies: 'SAPISID=geo_brandnew@example.invalid; SID=1',
+  });
+  assert.equal(c2.status, 503);
+  const afterList2 = await panel.req('GET', '/api/aistudio2');
+  assert.equal(afterList2.data.accounts.some((x: any) => x.email === 'geo_brandnew@example.invalid'), false);
+
+  ais2Mock.st.forceAlwaysGeoipFail = false;
+  ais2Mock.st.requireGeoipOrEnv = false;
   assert.doesNotMatch(logs, /\[error\]/, logs);
 });

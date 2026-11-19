@@ -123,6 +123,69 @@ ensure_catalog() {
   fi
 }
 
+valid_ais2_mmdb() {
+  local f="$1" sz
+  [ -f "$f" ] || return 1
+  sz="$(wc -c < "$f" 2>/dev/null | tr -d '[:space:]' || echo 0)"
+  [ "${sz:-0}" -ge 1048576 ] || return 1
+  { tail -c 131072 "$f" 2>/dev/null || true; } | { LC_ALL=C tr -cd '\40-\176' 2>/dev/null || true; } | grep -q 'MaxMind.com'
+}
+
+ensure_ais2_geoip() {
+  local gdir="$DIR/data/aistudio2api/runtime/geoip"
+  local v4="$gdir/geoip-aio-ipv4.mmdb"
+  local v6="$gdir/geoip-aio-ipv6.mmdb"
+  local tmp="$gdir/geoip-aio-ipv4.mmdb.tmp"
+  mkdir -p "$gdir"
+
+  if ! valid_ais2_mmdb "$v4"; then
+    rm -f "$tmp" "$tmp.gz"
+    local ok=0 u
+    for u in \
+      "https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb" \
+      "https://github.com/PrxyHunter/GeoLite2/releases/latest/download/GeoLite2-City.mmdb"; do
+      if curl -fsSL --connect-timeout 10 --max-time 120 "$u" -o "$tmp" 2>/dev/null && valid_ais2_mmdb "$tmp"; then
+        ok=1
+        break
+      fi
+      rm -f "$tmp"
+    done
+    if [ "$ok" = "0" ] && { command -v gzip >/dev/null 2>&1 || command -v gunzip >/dev/null 2>&1; }; then
+      if curl -fsSL --connect-timeout 10 --max-time 120 "https://cdn.jsdelivr.net/npm/geolite2-city/GeoLite2-City.mmdb.gz" -o "$tmp.gz" 2>/dev/null; then
+        if command -v gzip >/dev/null 2>&1; then
+          gzip -dc "$tmp.gz" > "$tmp" 2>/dev/null || rm -f "$tmp"
+        else
+          gunzip -c "$tmp.gz" > "$tmp" 2>/dev/null || rm -f "$tmp"
+        fi
+        rm -f "$tmp.gz"
+        if valid_ais2_mmdb "$tmp"; then
+          ok=1
+        else
+          rm -f "$tmp"
+        fi
+      else
+        rm -f "$tmp.gz"
+      fi
+    fi
+    if [ "$ok" = "1" ]; then
+      chmod 644 "$tmp" && mv "$tmp" "$v4"
+      ln -f "$v4" "$v6" 2>/dev/null || cp -f "$v4" "$v6"
+      say "已预置 AIStudio2API 离线 GeoIP 库（geoip-aio-ipv4/ipv6.mmdb）"
+    else
+      rm -f "$tmp" "$tmp.gz"
+      warn "未能预下载 AIStudio2API 离线 GeoIP 库，导入账号时将由面板自动补齐或启用免 GeoIP 兜底"
+    fi
+  fi
+
+  if valid_ais2_mmdb "$v4" && ! valid_ais2_mmdb "$v6"; then
+    ln -f "$v4" "$v6" 2>/dev/null || cp -f "$v4" "$v6"
+  fi
+
+  chown -R 1000:1000 "$DIR/data/aistudio2api/runtime" 2>/dev/null \
+    || sudo -n chown -R 1000:1000 "$DIR/data/aistudio2api/runtime" 2>/dev/null \
+    || chmod 777 "$DIR/data/aistudio2api/runtime/geoip" 2>/dev/null || true
+}
+
 # 原地更新 cpa/config.yaml：绝不用 sed -i（会换 inode 导致单文件挂载的 CPA 容器内读不到更新）
 upgrade_cpa_config_inplace() {
   local cfg="$DIR/cpa/config.yaml" ts="$1"
@@ -440,6 +503,9 @@ YML
     fi
     true
   } > docker-compose.yml
+  if [ "$AIS2_MODE_VAL" = "1" ]; then
+    ensure_ais2_geoip
+  fi
 }
 
 # ---------- 检测已有安装 ----------
@@ -473,6 +539,9 @@ if [ -f "$DIR/docker-compose.yml" ] && [ -n "$ENV_BASENAME" ]; then
       fi
     fi
     upgrade_compose_inplace "$ts"
+    if grep -qE '^[[:space:]]+aistudio2:' docker-compose.yml; then
+      ensure_ais2_geoip
+    fi
     if command -v ruby >/dev/null 2>&1; then
       helper="$(mktemp)"
       if curl -fsSL --max-time 10 "$RAW/deploy/update-models.rb" -o "$helper" 2>/dev/null; then

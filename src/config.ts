@@ -82,6 +82,13 @@ export const config = {
   aistudio2AdminPass: str('AISTUDIO2_ADMIN_PASSWORD') || str('AISTUDIO2_ADMIN_PASS'),
   aistudio2Mode: (str('AISTUDIO2_MODE').toLowerCase() === 'shared' ? 'shared' : 'exclusive') as 'exclusive' | 'shared',
   aistudio2RecheckMinutes: int('AISTUDIO2_RECHECK_MINUTES', 60),
+  aistudio2DataDir: str('AISTUDIO2_DATA_DIR'),
+  aistudio2GeoipURLs: str(
+    'AISTUDIO2_GEOIP_URLS',
+    'https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb,https://github.com/PrxyHunter/GeoLite2/releases/latest/download/GeoLite2-City.mmdb,https://cdn.jsdelivr.net/npm/geolite2-city/GeoLite2-City.mmdb.gz',
+  ).split(',').map((s) => s.trim()).filter(Boolean),
+  aistudio2FallbackLocale: str('AISTUDIO2_FALLBACK_LOCALE', 'en-US'),
+  aistudio2FallbackTimezone: str('AISTUDIO2_FALLBACK_TIMEZONE', 'America/Los_Angeles'),
   upstreamTimeoutMs: int('UPSTREAM_TIMEOUT_MS', 300_000),
 
   maxBodyBytes: int('MAX_BODY_MB', 20) * 1024 * 1024,

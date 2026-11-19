@@ -6,8 +6,22 @@
 //  - Zero proxy / mihomo / exit / multi-user sharing logic.
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
+import process from 'node:process';
+import { gunzipSync } from 'node:zlib';
 import { config } from './config.ts';
 import { HttpError, sleep } from './util.ts';
 import type { UsageSource } from './usage.ts';
@@ -169,6 +183,105 @@ export function unwrapCookieInput(raw: string): { cookieText: string; preferredA
 
 export type Verdict = { state: 'alive' | 'dead' | 'unknown'; tier?: string | null; error?: string };
 const TRANSIENT = /network error|fetch failed|timed? ?out|timeout|aborted|socket|ECONN|ENOTFOUND|EAI_AGAIN|EPIPE|\bHTTP 5\d\d\b|temporarily unavailable/i;
+const GEOIP_ERR = /下载 IP 库|打开 IP 库|查询 IP 库|创建 IP 库目录|IP 库中没有|国家代码无效|查询出口 IP 失败|geoip-aio-|Failed to download the IP database/i;
+const MAXMIND_MARKER = Buffer.from('MaxMind.com', 'ascii');
+
+function isValidMmdbBuffer(buf: Buffer): boolean {
+  if (buf.byteLength < 64) return false;
+  return buf.subarray(Math.max(0, buf.byteLength - 131072)).includes(MAXMIND_MARKER);
+}
+
+function isValidMmdbFile(filePath: string): boolean {
+  let fd: number | null = null;
+  try {
+    const st = statSync(filePath);
+    if (!st.isFile() || st.size < 64) return false;
+    const len = Math.min(st.size, 131072);
+    const buf = Buffer.allocUnsafe(len);
+    fd = openSync(filePath, 'r');
+    const n = readSync(fd, buf, 0, len, st.size - len);
+    return buf.subarray(0, n).includes(MAXMIND_MARKER);
+  } catch {
+    return false;
+  } finally {
+    if (fd !== null) {
+      try { closeSync(fd); } catch {}
+    }
+  }
+}
+
+function syncIpv6Mmdb(v4Path: string, v6Path: string, forceReplace = false) {
+  if (!forceReplace && isValidMmdbFile(v6Path)) return;
+  rmSync(v6Path, { force: true });
+  try {
+    linkSync(v4Path, v6Path);
+  } catch {
+    copyFileSync(v4Path, v6Path);
+  }
+}
+
+let geoipFlight: Promise<boolean> | null = null;
+
+async function ensureLocalAIS2GeoipInner(): Promise<boolean> {
+  try {
+    const ais2Root = config.aistudio2DataDir || join(config.dataDir, 'aistudio2api');
+    if (!existsSync(ais2Root)) return false;
+
+    const geoipDir = join(ais2Root, 'runtime', 'geoip');
+    const v4Path = join(geoipDir, 'geoip-aio-ipv4.mmdb');
+    const v6Path = join(geoipDir, 'geoip-aio-ipv6.mmdb');
+
+    if (isValidMmdbFile(v4Path)) {
+      syncIpv6Mmdb(v4Path, v6Path);
+      return true;
+    }
+
+    if (!config.aistudio2GeoipURLs.length) return false;
+    mkdirSync(geoipDir, { recursive: true });
+
+    for (const rawUrl of config.aistudio2GeoipURLs) {
+      let tmpPath = '';
+      try {
+        const r = await fetch(rawUrl, { signal: AbortSignal.timeout(60000) });
+        if (!r.ok) {
+          console.warn(`[aistudio2] geoip HTTP ${r.status} from ${rawUrl}`);
+          continue;
+        }
+        let buf: Buffer = Buffer.from(await r.arrayBuffer());
+        const isGz = rawUrl.split('?')[0].toLowerCase().endsWith('.gz')
+          || (buf.byteLength >= 2 && buf[0] === 0x1f && buf[1] === 0x8b);
+        if (isGz) buf = gunzipSync(buf);
+        if (!isValidMmdbBuffer(buf)) {
+          console.warn(`[aistudio2] invalid mmdb payload from ${rawUrl} (${buf.byteLength} bytes)`);
+          continue;
+        }
+        tmpPath = join(geoipDir, `geoip-aio-ipv4.mmdb.${process.pid}.tmp`);
+        writeFileSync(tmpPath, buf, { mode: 0o644 });
+        renameSync(tmpPath, v4Path);
+        tmpPath = '';
+        syncIpv6Mmdb(v4Path, v6Path, true);
+        return true;
+      } catch (e) {
+        if (tmpPath) {
+          try { rmSync(tmpPath, { force: true }); } catch {}
+        }
+        console.warn(`[aistudio2] geoip download failed (${rawUrl}):`, (e as Error).message);
+      }
+    }
+    return false;
+  } catch (e) {
+    console.warn('[aistudio2] ensureLocalAIS2Geoip failed:', (e as Error).message);
+    return false;
+  }
+}
+
+export function ensureLocalAIS2Geoip(): Promise<boolean> {
+  if (geoipFlight) return geoipFlight;
+  geoipFlight = ensureLocalAIS2GeoipInner().finally(() => {
+    geoipFlight = null;
+  });
+  return geoipFlight;
+}
 
 function normTier(v: unknown): string | null {
   if (typeof v !== 'string' || !v.trim()) return null;
@@ -201,6 +314,7 @@ async function refreshAccount(email: string): Promise<Verdict> {
     }
   }
   const msg = apiMsg(r.j) || `后端返回 ${r.status}`;
+  if (GEOIP_ERR.test(msg) || TRANSIENT.test(msg)) return { state: 'unknown', error: msg };
   if (r.status === 400 || r.status === 401 || r.status === 403) return { state: 'dead', error: msg };
   return { state: 'unknown', error: msg };
 }
@@ -251,6 +365,53 @@ function markDead(accountId: string, error: string | undefined, inRelay: boolean
     `UPDATE aistudio2_accounts SET status = 'dead', in_relay = ?, last_checked_at = ?, last_error = ?, updated_at = ? WHERE account_id = ?`,
     inRelay ? 1 : 0, now(), short(error), now(), accountId,
   );
+}
+
+async function runCookieImportTask(
+  email: string,
+  cookieText: string,
+  authUser: number,
+  envFallback?: { locale: string; timezone: string },
+) {
+  let imp: ApiReply;
+  try {
+    imp = await adminReq(
+      'POST',
+      '/api/accounts/import/cookies',
+      {
+        items: [{ email, cookies: cookieText, auth_user: authUser }],
+        ...(envFallback ? { locale: envFallback.locale, timezone: envFallback.timezone } : {}),
+      },
+      30000,
+    );
+  } catch {
+    throw new HttpError(502, 'aistudio_unreachable', 'AI Studio 后端暂时连不上，请稍后再试');
+  }
+  if ((imp.status !== 202 && imp.status !== 200) || !imp.j?.task?.id) {
+    throw new HttpError(400, 'aistudio_cookie', apiMsg(imp.j) || '导入任务创建失败');
+  }
+
+  const taskId = String(imp.j.task.id);
+  let doneTask: any = imp.j.task;
+  const deadline = Date.now() + 120000;
+  try {
+    while (doneTask?.state === 'running' && Date.now() < deadline) {
+      await sleep(600);
+      const tr = await adminReq('GET', '/api/accounts/tasks', undefined, 15000);
+      if (tr.status === 200 && Array.isArray(tr.j?.tasks)) {
+        const foundTask = tr.j.tasks.find((t: any) => String(t?.id) === taskId);
+        if (foundTask) doneTask = foundTask;
+        else break;
+      }
+    }
+  } finally {
+    await adminReq('DELETE', '/api/accounts/tasks/' + encodeURIComponent(taskId), undefined, 10000).catch(() => {});
+  }
+
+  const item = Array.isArray(doneTask?.items) ? doneTask.items[0] : null;
+  const failed = Boolean(doneTask?.state === 'failed' || item?.state === 'failed');
+  const err = failed ? String(item?.error || doneTask?.error || '校验未通过').replace(/\s+/g, ' ').trim() : '';
+  return { doneTask, item, failed, err };
 }
 
 export async function upload(cookies: string) {
@@ -335,53 +496,54 @@ export async function upload(cookies: string) {
     }
 
     // Step 3: Import into AIStudio2API and wait for async validation task (no proxy / no exit).
-    let imp: ApiReply;
-    try {
-      imp = await adminReq('POST', '/api/accounts/import/cookies', {
-        items: [{ email, cookies: cookieText, auth_user: authUser }],
-      }, 30000);
-    } catch {
-      throw new HttpError(502, 'aistudio_unreachable', 'AI Studio 后端暂时连不上，请稍后再试');
-    }
-    if ((imp.status !== 202 && imp.status !== 200) || !imp.j?.task?.id) {
+    const cleanImporting = () => {
       if (!existing) run("DELETE FROM aistudio2_accounts WHERE account_id = ? AND status = 'importing'", id);
-      throw new HttpError(400, 'aistudio_cookie', apiMsg(imp.j) || '导入任务创建失败');
-    }
+    };
 
-    const taskId = String(imp.j.task.id);
-    let doneTask: any = imp.j.task;
-    const deadline = Date.now() + 120000;
+    let taskRes: Awaited<ReturnType<typeof runCookieImportTask>>;
     try {
-      while (doneTask?.state === 'running' && Date.now() < deadline) {
-        await sleep(600);
-        const tr = await adminReq('GET', '/api/accounts/tasks', undefined, 15000);
-        if (tr.status === 200 && Array.isArray(tr.j?.tasks)) {
-          const foundTask = tr.j.tasks.find((t: any) => String(t?.id) === taskId);
-          if (foundTask) doneTask = foundTask;
-          else break;
+      taskRes = await runCookieImportTask(email, cookieText, authUser);
+      if (taskRes.failed && GEOIP_ERR.test(taskRes.err)) {
+        const healed = await ensureLocalAIS2Geoip();
+        if (healed) {
+          taskRes = await runCookieImportTask(email, cookieText, authUser);
+        }
+        if (taskRes.failed && GEOIP_ERR.test(taskRes.err) && config.aistudio2FallbackLocale && config.aistudio2FallbackTimezone) {
+          taskRes = await runCookieImportTask(email, cookieText, authUser, {
+            locale: config.aistudio2FallbackLocale,
+            timezone: config.aistudio2FallbackTimezone,
+          });
         }
       }
-    } finally {
-      await adminReq('DELETE', '/api/accounts/tasks/' + encodeURIComponent(taskId), undefined, 10000).catch(() => {});
+    } catch (e) {
+      cleanImporting();
+      throw e;
     }
 
-    if (doneTask?.state === 'running') {
-      if (!existing) run("DELETE FROM aistudio2_accounts WHERE account_id = ? AND status = 'importing'", id);
+    if (taskRes.doneTask?.state === 'running') {
+      cleanImporting();
       if (!existing || existing.status !== 'valid') await backendRemove(email).catch(() => {});
       throw new HttpError(503, 'aistudio_check_failed', '账号校验超时，请稍后再试');
     }
 
-    const item = Array.isArray(doneTask?.items) ? doneTask.items[0] : null;
-    if (doneTask?.state === 'failed' || item?.state === 'failed') {
-      const err = String(item?.error || doneTask?.error || '校验未通过').replace(/\s+/g, ' ').trim();
-      if (TRANSIENT.test(err) && existing?.status === 'valid') {
+    if (taskRes.failed) {
+      const err = taskRes.err;
+      if (GEOIP_ERR.test(err)) {
+        cleanImporting();
+        throw new HttpError(
+          503,
+          'aistudio_check_failed',
+          'AI Studio 后端缺少 GeoIP 库且自动兜底未生效，请重跑 deploy.sh --upgrade 或将 GeoLite2-City.mmdb 放到 <DATA_DIR>/aistudio2api/runtime/geoip/geoip-aio-ipv4.mmdb（原始错误：' + err.slice(0, 100) + '）',
+        );
+      }
+      if (TRANSIENT.test(err)) {
+        cleanImporting();
         throw new HttpError(503, 'aistudio_check_failed', '暂时无法检测该账号，请稍后再试');
       }
       let removed = true;
       try { await backendRemove(email); } catch { removed = false; }
       if (existing) markDead(String(existing.account_id), err, !removed);
-      else run("DELETE FROM aistudio2_accounts WHERE account_id = ? AND status = 'importing'", id);
-      if (TRANSIENT.test(err)) throw new HttpError(503, 'aistudio_check_failed', '暂时无法检测该账号，请稍后再试');
+      else cleanImporting();
       throw new HttpError(400, 'aistudio_dead', '该账号无效：' + err.slice(0, 160));
     }
 
